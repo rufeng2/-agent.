@@ -1,5 +1,5 @@
 from backend.ecommerce.metrics import build_dashboard
-from backend.ecommerce.schemas import EcommerceDataset, ToolTraceStep
+from backend.ecommerce.schemas import EcommerceDataset, ProductAnalysis, ProductRecord, ToolTraceStep
 from backend.ecommerce.segmentation import build_product_analysis
 
 
@@ -47,8 +47,8 @@ class EcommerceTools:
     def generate_campaign_plan(self, goal: str = "大促增长"):
         normalized_goal = goal.strip() or "大促增长"
         products = build_product_analysis(self.dataset)
-        hero = [item for item in products if item.segment in {"hero", "profit"} and not item.risk_tags][:3]
-        clearance = [item for item in products if item.segment == "clearance" or item.stock > item.safety_stock * 2][:2]
+        product_records = {item.product_id: item for item in self.dataset.products}
+        hero, clearance = _campaign_products(normalized_goal, products, product_records)
         plan = {
             "theme": _campaign_theme(normalized_goal),
             "hero_products": [item.model_dump() for item in hero],
@@ -77,3 +77,65 @@ def _campaign_strategy(goal: str) -> list[str]:
     if any(keyword in goal for keyword in ("复购", "会员", "老客")):
         return ["利润款绑定会员券提升复购", "主推款做加购提醒和短信召回", "低毛利商品不参与深折扣"]
     return ["主推款承接搜索流量", "利润款配置满减", "风险商品先处理评价和库存"]
+
+
+def _campaign_products(
+    goal: str,
+    products: list[ProductAnalysis],
+    product_records: dict[str, ProductRecord],
+) -> tuple[list[ProductAnalysis], list[ProductAnalysis]]:
+    if any(keyword in goal for keyword in ("新品", "冷启动", "上新")):
+        hero = _top_products(products, lambda item: _launch_score(item, product_records), limit=3)
+        clearance = _inventory_backups(products, exclude={item.product_id for item in hero}, limit=2)
+        return hero, clearance
+
+    if any(keyword in goal for keyword in ("清仓", "库存", "尾货")):
+        hero = _top_products(products, lambda item: _clearance_score(item, product_records), limit=3)
+        clearance = _inventory_backups(products, exclude={item.product_id for item in hero}, limit=2)
+        return hero, clearance
+
+    if any(keyword in goal for keyword in ("复购", "会员", "老客")):
+        hero = _top_products(products, _repurchase_score, limit=3)
+        clearance = _inventory_backups(products, exclude={item.product_id for item in hero}, limit=2)
+        return hero, clearance
+
+    hero = [item for item in products if item.segment in {"hero", "profit"} and not item.risk_tags][:3]
+    clearance = _inventory_backups(products, exclude={item.product_id for item in hero}, limit=2)
+    return hero, clearance
+
+
+def _top_products(products: list[ProductAnalysis], score, limit: int) -> list[ProductAnalysis]:
+    return sorted(products, key=lambda item: (score(item), item.gmv), reverse=True)[:limit]
+
+
+def _inventory_backups(products: list[ProductAnalysis], exclude: set[str], limit: int) -> list[ProductAnalysis]:
+    candidates = [item for item in products if item.product_id not in exclude]
+    return _top_products(candidates, _clearance_inventory_score, limit)
+
+
+def _launch_score(item: ProductAnalysis, product_records: dict[str, ProductRecord]) -> float:
+    record = product_records[item.product_id]
+    risk_penalty = 500 if "差评风险" in item.risk_tags or "投放低效" in item.risk_tags else 0
+    return (
+        (10000 if record.positioning == "new" else 0)
+        + record.launch_date.toordinal() / 100
+        + item.gross_margin_rate * 10
+        + item.conversion_rate * 100
+        - risk_penalty
+    )
+
+
+def _clearance_score(item: ProductAnalysis, product_records: dict[str, ProductRecord]) -> float:
+    record = product_records[item.product_id]
+    return (10000 if record.positioning == "clearance" else 0) + _clearance_inventory_score(item)
+
+
+def _clearance_inventory_score(item: ProductAnalysis) -> float:
+    stock_ratio = item.stock / item.safety_stock if item.safety_stock else 0
+    return stock_ratio * 1000 + item.stock + item.inventory_turnover_days * 10
+
+
+def _repurchase_score(item: ProductAnalysis) -> float:
+    daily_use_bonus = 2000 if item.category in {"日用", "小家电", "服饰"} else 0
+    risk_penalty = 4000 if "差评风险" in item.risk_tags or "投放低效" in item.risk_tags else 800 if item.risk_tags else 0
+    return daily_use_bonus + item.gross_margin_rate * 100 + item.average_rating * 100 + item.orders * 10 - risk_penalty

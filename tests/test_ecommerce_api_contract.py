@@ -66,3 +66,21 @@ def test_campaign_plan_uses_selected_goal():
     assert data["goal"] == "新品冷启动"
     assert data["theme"] == "新品冷启动策略"
     assert data["tool_trace"][0]["input"]["goal"] == "新品冷启动"
+
+
+def test_campaign_plan_changes_products_for_selected_goal():
+    growth = client.get("/api/ecommerce/campaigns/plan", params={"goal": "大促增长"}).json()["data"]
+    launch = client.get("/api/ecommerce/campaigns/plan", params={"goal": "新品冷启动"}).json()["data"]
+    clearance = client.get("/api/ecommerce/campaigns/plan", params={"goal": "清仓库存"}).json()["data"]
+    repurchase = client.get("/api/ecommerce/campaigns/plan", params={"goal": "会员复购"}).json()["data"]
+
+    growth_ids = [item["product_id"] for item in growth["hero_products"]]
+    launch_ids = [item["product_id"] for item in launch["hero_products"]]
+    clearance_ids = [item["product_id"] for item in clearance["hero_products"]]
+
+    assert launch_ids != growth_ids
+    assert clearance_ids != growth_ids
+    assert launch_ids[0] == "P006"
+    assert clearance_ids[0] == "P005"
+    assert all("差评风险" not in item["risk_tags"] for item in repurchase["hero_products"])
+    assert not set(clearance_ids).intersection(item["product_id"] for item in clearance["clearance_products"])
