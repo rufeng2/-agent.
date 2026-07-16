@@ -14,12 +14,10 @@
         </div>
       </div>
       <nav>
-        <router-link to="/agent" title="主管工作台"><el-icon><ChatDotRound /></el-icon><span class="sidebar-copy">主管工作台</span></router-link>
+        <router-link to="/agent" title="执行型 Agent"><el-icon><ChatDotRound /></el-icon><span class="sidebar-copy">执行型 Agent</span></router-link>
         <router-link to="/team-automation" title="团队与自动化"><el-icon><Timer /></el-icon><span class="sidebar-copy">团队与自动化</span></router-link>
-        <router-link to="/action-console" title="智能执行台"><el-icon><Setting /></el-icon><span class="sidebar-copy">智能执行台</span></router-link>
         <router-link to="/dashboard" title="经营数据"><el-icon><DataBoard /></el-icon><span class="sidebar-copy">经营数据</span></router-link>
         <router-link to="/products" title="商品分析"><el-icon><Goods /></el-icon><span class="sidebar-copy">商品分析</span></router-link>
-        <router-link to="/recommendations" title="建议审批"><el-icon><Checked /></el-icon><span class="sidebar-copy">建议审批</span></router-link>
         <router-link to="/runs" title="Agent 运行中心"><el-icon><Timer /></el-icon><span class="sidebar-copy">运行中心</span></router-link>
         <router-link to="/knowledge" title="运营知识库"><el-icon><Files /></el-icon><span class="sidebar-copy">运营知识库</span></router-link>
         <router-link v-if="auth.isAdmin" to="/evaluation" title="分析质量评测"><el-icon><DataAnalysis /></el-icon><span class="sidebar-copy">质量评测</span></router-link>

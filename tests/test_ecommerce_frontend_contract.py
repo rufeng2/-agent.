@@ -15,7 +15,7 @@ def test_frontend_uses_ecommerce_product_identity():
     router = read("frontend/src/router/index.ts")
 
     assert "智能电商运营 Agent 平台" in app
-    assert "主管工作台" in app
+    assert "执行型 Agent" in app
     assert "团队与自动化" in app
     assert "运营知识库" in app
     assert "智能电商运营 Agent 平台" in login
@@ -24,6 +24,21 @@ def test_frontend_uses_ecommerce_product_identity():
     assert 'path: "/team-automation"' in router
     assert 'path: "/recommendations"' in router
     assert "企业知识库问答" not in app + login + router
+
+
+def test_execution_agent_is_the_primary_agent_workspace():
+    app = read("frontend/src/App.vue")
+    router = read("frontend/src/router/index.ts")
+    page = read("frontend/src/views/Ecommerce/ExecutionAgentWorkspace.vue")
+    client = read("frontend/src/api/client.ts")
+
+    assert 'ExecutionAgentWorkspace.vue' in router
+    assert "智能执行台" not in app
+    assert "建议审批" not in app
+    assert "批准并执行" in page
+    assert "回滚本次变更" in page
+    assert "createExecutionTask" in client
+    assert "approveExecutionTask" in client
 
 
 def test_frontend_api_exports_ecommerce_client():

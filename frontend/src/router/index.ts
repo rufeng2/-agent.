@@ -36,8 +36,8 @@ const router = createRouter({
     {
       path: "/agent",
       name: "agent",
-      component: () => import("@/views/Ecommerce/AgentWorkspace.vue"),
-      meta: { title: "运营 Agent", requiresAuth: true },
+      component: () => import("@/views/Ecommerce/ExecutionAgentWorkspace.vue"),
+      meta: { title: "执行型运营 Agent", requiresAuth: true },
     },
     {
       path: "/products",

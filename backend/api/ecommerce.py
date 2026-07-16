@@ -30,12 +30,14 @@ from backend.ecommerce.operations_center import build_operations_center
 from backend.ecommerce.action_agent import CommerceActionAgent
 from backend.ecommerce.llm import configured_team_planner
 from backend.ecommerce.automation import AutomationService, WEBHOOK_PROMPTS
+from backend.ecommerce.execution_graph import ExecutionPlanningError, LangGraphExecutionAgent
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
 _loader = EcommerceDataLoader()
 _repository = EcommerceRepository(settings.ECOMMERCE_DATABASE_URL)
 _repository_ready = False
+_execution_agent: LangGraphExecutionAgent | None = None
 
 
 class AgentAnalyzeRequest(BaseModel):
@@ -79,6 +81,15 @@ class AutomationToggleRequest(BaseModel):
     enabled: bool
 
 
+class ExecutionTaskRequest(BaseModel):
+    goal: str
+
+
+class ExecutionApprovalRequest(BaseModel):
+    expected_version: int
+    comment: str = ""
+
+
 async def _simulation_result():
     await _ensure_repository()
     baseline = _loader.load_cached()
@@ -96,6 +107,22 @@ async def _ensure_repository() -> None:
     if not _repository_ready:
         await _repository.initialize()
         _repository_ready = True
+
+
+async def _execution_runtime() -> LangGraphExecutionAgent:
+    global _execution_agent
+    await _ensure_repository()
+    if _execution_agent is None:
+        _execution_agent = LangGraphExecutionAgent(_repository, await _dataset())
+    return _execution_agent
+
+
+def _execution_task_data(item) -> dict:
+    return {
+        "id": item.id, "goal": item.goal, "status": item.status, "operator": item.operator,
+        "state": item.state, "events": item.events, "result": item.result, "error": item.error,
+        "version": item.version, "created_at": item.created_at.isoformat(), "updated_at": item.updated_at.isoformat(),
+    }
 
 
 def _session_data(item, include_messages: bool = False) -> dict:
@@ -125,6 +152,59 @@ async def dashboard():
 @router.get("/operations-center", response_model=ApiResponse)
 async def operations_center():
     return ApiResponse(data=build_operations_center(await _dataset()))
+
+
+@router.post("/execution/tasks", response_model=ApiResponse, status_code=201)
+async def create_execution_task(request: ExecutionTaskRequest):
+    goal = request.goal.strip()
+    if not goal:
+        raise HTTPException(status_code=400, detail="执行目标不能为空")
+    try:
+        item = await (await _execution_runtime()).create_task(goal, "workspace-demo", "demo-user")
+    except ExecutionPlanningError as exc:
+        raise HTTPException(status_code=400, detail=str(exc).split("\nDuring task")[0]) from exc
+    return ApiResponse(data=_execution_task_data(item))
+
+
+@router.get("/execution/tasks", response_model=ApiResponse)
+async def execution_tasks():
+    await _ensure_repository()
+    return ApiResponse(data=[_execution_task_data(item) for item in await _repository.list_execution_tasks("workspace-demo")])
+
+
+@router.get("/execution/tasks/{task_id}", response_model=ApiResponse)
+async def execution_task_detail(task_id: str):
+    await _ensure_repository()
+    item = await _repository.get_execution_task(task_id, "workspace-demo")
+    if item is None:
+        raise HTTPException(status_code=404, detail="执行任务不存在")
+    return ApiResponse(data=_execution_task_data(item))
+
+
+@router.post("/execution/tasks/{task_id}/approve", response_model=ApiResponse)
+async def approve_execution_task(task_id: str, request: ExecutionApprovalRequest):
+    try:
+        item = await (await _execution_runtime()).approve_and_run(task_id, "workspace-demo", "demo-user", request.expected_version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="执行任务不存在") from exc
+    except VersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ExecutionPlanningError, PermissionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ApiResponse(data=_execution_task_data(item))
+
+
+@router.post("/execution/tasks/{task_id}/rollback", response_model=ApiResponse)
+async def rollback_execution_task(task_id: str, request: ExecutionApprovalRequest):
+    try:
+        item = await (await _execution_runtime()).rollback(task_id, "workspace-demo", "demo-user", request.expected_version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="执行任务不存在") from exc
+    except VersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ExecutionPlanningError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ApiResponse(data=_execution_task_data(item))
 
 
 @router.post("/actions/proposals", response_model=ApiResponse)

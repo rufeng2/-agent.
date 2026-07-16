@@ -58,6 +58,29 @@ def test_recommendation_approval_flow():
     assert approved["status"] == "approved"
 
 
+def test_execution_agent_creates_approves_and_rolls_back_task():
+    created_response = client.post("/api/ecommerce/execution/tasks", json={"goal": "把轻量跑步鞋价格调整到280元"})
+    assert created_response.status_code == 201
+    created = created_response.json()["data"]
+    assert created["status"] == "waiting_approval"
+    assert created["state"]["specialist"] == "pricing_agent"
+
+    completed_response = client.post(
+        f"/api/ecommerce/execution/tasks/{created['id']}/approve",
+        json={"expected_version": created["version"], "comment": "API contract"},
+    )
+    assert completed_response.status_code == 200
+    completed = completed_response.json()["data"]
+    assert completed["status"] == "completed"
+    assert completed["result"]["after"]["price"] == 280
+
+    rolled_back = client.post(
+        f"/api/ecommerce/execution/tasks/{created['id']}/rollback",
+        json={"expected_version": completed["version"], "comment": "rollback"},
+    ).json()["data"]
+    assert rolled_back["status"] == "rolled_back"
+
+
 def test_campaign_plan_uses_selected_goal():
     response = client.get("/api/ecommerce/campaigns/plan", params={"goal": "新品冷启动"})
 

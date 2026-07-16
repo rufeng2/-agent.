@@ -12,6 +12,7 @@ from backend.ecommerce.persistence.models import (
     EvaluationRunModel,
     SimulationStateModel,
     AgentJobModel, AgentEventModel, CatalogStateModel, ActionExecutionModel, AgentMemoryModel, AutomationRuleModel,
+    ExecutionTaskModel,
 )
 
 
@@ -304,4 +305,41 @@ class EcommerceRepository:
                     item.last_run_at = datetime.now(timezone.utc)
                     item.run_count += 1
                 await session.commit()
+            return item
+
+    async def create_execution_task(self, workspace_id: str, operator: str, goal: str) -> ExecutionTaskModel:
+        async with self.database.sessions() as session:
+            item = ExecutionTaskModel(workspace_id=workspace_id, operator=operator, goal=goal, state={}, events=[], result={})
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def get_execution_task(self, task_id: str, workspace_id: str) -> ExecutionTaskModel | None:
+        async with self.database.sessions() as session:
+            return (await session.execute(select(ExecutionTaskModel).where(ExecutionTaskModel.id == task_id, ExecutionTaskModel.workspace_id == workspace_id))).scalar_one_or_none()
+
+    async def list_execution_tasks(self, workspace_id: str, limit: int = 30) -> list[ExecutionTaskModel]:
+        async with self.database.sessions() as session:
+            statement = select(ExecutionTaskModel).where(ExecutionTaskModel.workspace_id == workspace_id).order_by(ExecutionTaskModel.updated_at.desc()).limit(limit)
+            return list((await session.execute(statement)).scalars())
+
+    async def update_execution_task(self, task_id: str, workspace_id: str, *, status: str | None = None, state: dict | None = None, events: list | None = None, result: dict | None = None, error: str | None = None, expected_version: int | None = None) -> ExecutionTaskModel:
+        async with self.database.sessions() as session:
+            item = (await session.execute(select(ExecutionTaskModel).where(ExecutionTaskModel.id == task_id, ExecutionTaskModel.workspace_id == workspace_id))).scalar_one_or_none()
+            if item is None:
+                raise KeyError(task_id)
+            if expected_version is not None and item.version != expected_version:
+                raise VersionConflict(f"Expected version {expected_version}, found {item.version}")
+            if status is not None:
+                item.status = status
+            if state is not None:
+                item.state = state
+            if events is not None:
+                item.events = events
+            if result is not None:
+                item.result = result
+            if error is not None:
+                item.error = error
+            item.version += 1
+            await session.commit()
             return item

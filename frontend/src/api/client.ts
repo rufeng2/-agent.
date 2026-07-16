@@ -134,6 +134,11 @@ export const operationsAPI = {
 
 export const ecommerceAPI = {
   dashboard: () => client.get("/ecommerce/dashboard"),
+  executionTasks: () => client.get("/ecommerce/execution/tasks"),
+  createExecutionTask: (goal: string) => client.post("/ecommerce/execution/tasks", { goal }),
+  executionTask: (id: string) => client.get(`/ecommerce/execution/tasks/${id}`),
+  approveExecutionTask: (id: string, expected_version: number, comment = "") => client.post(`/ecommerce/execution/tasks/${id}/approve`, { expected_version, comment }),
+  rollbackExecutionTask: (id: string, expected_version: number) => client.post(`/ecommerce/execution/tasks/${id}/rollback`, { expected_version, comment: "rollback" }),
   operationsCenter: () => client.get("/ecommerce/operations-center"),
   createActionProposal: (action_type: string, product_id: string, parameters: Record<string, any> = {}) => client.post("/ecommerce/actions/proposals", { action_type, product_id, parameters }),
   executeAction: (recommendationId: string) => client.post(`/ecommerce/actions/${recommendationId}/execute`),
