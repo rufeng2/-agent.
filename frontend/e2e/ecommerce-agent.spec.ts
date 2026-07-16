@@ -1,67 +1,51 @@
 import { expect, test } from "@playwright/test"
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("token", "demo-e2e-token")
-    localStorage.setItem("role", "user")
-    localStorage.setItem("user", "e2e-user")
-  })
-})
-
-test("agent analysis persists a session and exposes a run", async ({ page }) => {
-  await page.goto("/agent")
-  await page.getByPlaceholder("例如：昨天 GMV 为什么下降？").fill("昨天 GMV 为什么下降？")
-  await page.getByRole("button", { name: "分析", exact: true }).click()
-
-  await expect(page.getByText("deterministic_fallback")).toBeVisible()
-  await expect(page.getByText("Agent 执行轨迹")).toBeVisible()
-  await page.goto("/runs")
-  await expect(page.getByRole("heading", { name: "Agent 运行中心" })).toBeVisible()
-  await expect(page.locator(".el-table__body tr").first()).toBeVisible()
-})
-
-test("campaign goals produce goal-specific strategy and products", async ({ page }) => {
-  await page.goto("/campaigns")
-  const input = page.locator(".toolbar-row input")
-  await input.fill("新品冷启动")
-  await page.getByRole("button", { name: "生成策略" }).click()
-  await expect(page.getByRole("heading", { name: "新品冷启动策略" })).toBeVisible()
-  await expect(page.getByText("抗菌保温杯").first()).toBeVisible()
-  await expect(page.getByText("模拟测算，不代表真实业务承诺")).toBeVisible()
-})
-
-test("mobile dashboard keeps navigation and analysis content usable", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "mobile")
-  await page.goto("/dashboard")
-  await expect(page.getByRole("heading", { name: "运营驾驶舱" })).toBeVisible()
-  await page.locator(".mobile-header button").click()
-  await expect(page.getByText("客户分析")).toBeVisible()
-})
-
-test("product simulation advances, survives refresh, and resets", async ({ page, request }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium")
-  const initialResponse = await request.get("http://127.0.0.1:8001/api/ecommerce/simulation/state")
-  const initial = (await initialResponse.json()).data
-  if (initial.step > 0) {
-    await request.post("http://127.0.0.1:8001/api/ecommerce/simulation/reset", { data: { expected_version: initial.version } })
+test.beforeEach(async ({ page, request }) => {
+  const username = `e2e-${Date.now()}-${Math.floor(Math.random() * 10000)}`
+  const password = "e2e-password-123"
+  const registered = await request.post("http://127.0.0.1:8001/api/register", { data: { username, password, display_name: "E2E" } })
+  let auth = await registered.json()
+  if (!auth.token) {
+    auth = await (await request.post("http://127.0.0.1:8001/api/login", { data: { username, password } })).json()
   }
+  expect(auth.token, `authentication failed: ${JSON.stringify(auth)}`).toBeTruthy()
+  await page.addInitScript(({ token, username }) => {
+    localStorage.setItem("token", token)
+    localStorage.setItem("role", "user")
+    localStorage.setItem("username", username)
+  }, { token: auth.token, username })
+})
 
-  await page.goto("/products")
-  await expect(page.getByText(/模拟日期/)).not.toHaveText("模拟日期 -")
-  const dateBefore = await page.getByText(/模拟日期/).textContent()
-  const gmvBefore = await page.locator(".el-table__body tr").first().locator("td").nth(4).innerText()
-  await page.getByRole("button", { name: "推进一天" }).click()
+test("execution task pauses for approval and returns MCP receipt", async ({ page }) => {
+  await page.goto("/agent")
+  await expect(page.getByText("MCP ready")).toBeVisible({ timeout: 20_000 })
+  await page.locator(".command-input input").fill("下架商品 P003")
+  await page.getByRole("button", { name: "创建并运行" }).click()
 
-  await expect(page.getByText("今日经营事件")).toBeVisible()
-  await expect(page.getByText(/模拟日期/)).not.toHaveText(dateBefore || "")
-  const gmvAfter = await page.locator(".el-table__body tr").first().locator("td").nth(4).innerText()
-  expect(gmvAfter).not.toBe(gmvBefore)
+  await expect(page.getByText("等待人工批准"), "task creation must reach the approval gate").toBeVisible()
+  await page.getByRole("button", { name: "批准并执行" }).click()
+  await page.getByRole("button", { name: "批准并执行" }).last().click()
 
-  const advancedDate = await page.getByText(/模拟日期/).textContent()
-  await page.reload()
-  await expect(page.getByText(/模拟日期/)).toHaveText(advancedDate || "")
+  await expect(page.getByText("业务工具已完成写入")).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText(/ecommerce-operations.*set_product_listing/)).toBeVisible()
+  await expect(page.getByText("stdio")).toBeVisible()
+})
 
-  await page.getByRole("button", { name: "重置模拟" }).click()
-  await page.getByRole("button", { name: "确定" }).click()
-  await expect(page.getByText(/模拟日期/)).toHaveText(dateBefore || "")
+test("composite task exposes completed DAG steps", async ({ page }) => {
+  await page.goto("/agent")
+  await page.locator(".command-input input").fill("把云感防晒衣价格调整到190元并创建新品推广活动")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByText("等待人工批准")).toBeVisible()
+  await page.getByRole("button", { name: "批准并执行" }).click()
+  await page.getByRole("button", { name: "批准并执行" }).last().click()
+
+  await expect(page.getByText("price · completed")).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText("campaign · completed")).toBeVisible()
+})
+
+test("mobile execution workspace has no horizontal overflow", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile")
+  await page.goto("/agent")
+  await expect(page.getByRole("heading", { name: "执行型运营 Agent" })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })

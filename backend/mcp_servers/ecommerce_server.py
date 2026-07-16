@@ -55,7 +55,9 @@ async def _require_approval(approved_task_id: str, action_type: str, product_id:
     if task.status not in {"running", "rolling_back"} or not task.state.get("approved"):
         raise PermissionError("task is not in an approved running state")
     approval = task.state.get("approval", {})
-    if approval.get("action_type") != action_type or approval.get("product_id") != product_id:
+    approved_action = approval.get("action_type")
+    action_allowed = approved_action == action_type or (approved_action == "composite" and action_type in {"price_update", "marketing_plan", "rollback"})
+    if not action_allowed or approval.get("product_id") != product_id:
         raise PermissionError("tool call does not match the approved action")
     approved_parameters = approval.get("parameters", {})
     def matches(approved, requested) -> bool:

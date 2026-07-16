@@ -33,6 +33,9 @@ class ExecutionState(TypedDict, total=False):
     result: dict[str, Any]
     status: str
     error: str
+    steps: list[dict[str, Any]]
+    context: list[dict[str, Any]]
+    context_stats: dict[str, Any]
 
 
 def _event(agent: str, event_type: str, detail: str) -> dict[str, Any]:
@@ -73,7 +76,11 @@ class LangGraphExecutionAgent:
 
     async def create_task(self, goal: str, workspace_id: str, operator: str):
         task = await self.repository.create_execution_task(workspace_id, operator, goal)
-        initial: ExecutionState = {"task_id": task.id, "goal": goal, "workspace_id": workspace_id, "operator": operator, "approved": False, "events": [], "status": "planning"}
+        recent = await self.repository.list_execution_tasks(workspace_id, limit=10)
+        context = [{"goal": item.goal, "status": item.status, "action_type": item.state.get("action_type"), "result": item.result.get("status", "")} for item in recent if item.id != task.id]
+        while len(str(context)) > 8000 and context:
+            context.pop()
+        initial: ExecutionState = {"task_id": task.id, "goal": goal, "workspace_id": workspace_id, "operator": operator, "approved": False, "events": [], "status": "planning", "context": context, "context_stats": {"items": len(context), "estimated_tokens": len(str(context)) // 4}}
         try:
             output = await self.graph.ainvoke(initial, config={"configurable": {"thread_id": task.id}})
             state = await self._current_state(task.id, output)
@@ -162,9 +169,10 @@ class LangGraphExecutionAgent:
 
     async def _supervisor(self, state: ExecutionState):
         goal = state["goal"].strip()
+        is_composite = any(word in goal for word in ("并创建", "同时创建", "并且创建")) and any(word in goal for word in ("调价", "价格", "降到", "涨到")) and any(word in goal for word in ("营销", "推广", "活动", "广告"))
         planner_mode, fallback = "llm", ""
         try:
-            llm_plan = await self.supervisor.plan(goal)
+            llm_plan = await self.supervisor.plan(goal, state.get("context", []))
         except Exception as exc:
             llm_plan, planner_mode, fallback = None, "rules", type(exc).__name__
         if llm_plan is None:
@@ -189,7 +197,19 @@ class LangGraphExecutionAgent:
         if fallback:
             detail += f"，降级原因 {fallback}"
         events = [*state.get("events", []), _event("Supervisor", "task_planned", detail)]
-        return {"action_type": action_type, "specialist": specialist, "product_id": product.product_id, "parameters": parameters, "events": events}
+        steps = []
+        if is_composite:
+            match = re.search(r"(?:调整到|调到|改为|售价为|价格为|降到|涨到|至)\s*[¥￥]?\s*(\d+(?:\.\d+)?)", goal)
+            if not match:
+                raise ExecutionPlanningError("复合调价任务必须给出明确的新价格")
+            action_type, specialist = "composite", "pricing_agent"
+            parameters = {"new_price": float(match.group(1)), "goal": "新品冷启动" if "新品" in goal else "日常增长"}
+            steps = [
+                {"id": "price", "action_type": "price_update", "status": "pending"},
+                {"id": "campaign", "action_type": "marketing_plan", "depends_on": ["price"], "status": "pending"},
+            ]
+            events[-1] = _event("Supervisor", "dag_planned", "规划复合 DAG：调价 -> 创建营销活动")
+        return {"action_type": action_type, "specialist": specialist, "product_id": product.product_id, "parameters": parameters, "steps": steps, "events": events}
 
     async def _catalog_agent(self, state: ExecutionState):
         snapshot = await self.mcp.call_tool("get_product", {"product_id": state["product_id"]})
@@ -204,6 +224,9 @@ class LangGraphExecutionAgent:
         if new_price <= float(product["cost"]):
             raise ExecutionPlanningError("新价格不能低于商品成本")
         parameters = {**state["parameters"], "old_price": product["price"], "change_pct": round(change_pct, 2), "margin_pct": round(margin_pct, 2)}
+        if state.get("action_type") == "composite":
+            budget = round(max(100, min(500, new_price * 1.05)), 2)
+            parameters["campaign"] = {"name": f"{product['name']}-{parameters['goal']}", "daily_budget": budget, "target_acos_pct": 35, "channels": ["搜索广告", "商品广告"]}
         return {"parameters": parameters, "events": [*state["events"], _event("Pricing Agent", "policy_validated", f"调价幅度 {change_pct:.2f}%，预计毛利率 {margin_pct:.2f}%")]}
 
     async def _listing_agent(self, state: ExecutionState):
@@ -216,9 +239,12 @@ class LangGraphExecutionAgent:
         return {"parameters": {**state["parameters"], "campaign": campaign}, "events": [*state["events"], _event("Marketing Agent", "campaign_prepared", f"生成日预算 {budget} 元的推广活动")]}
 
     async def _risk_agent(self, state: ExecutionState):
-        risk = "high" if state["action_type"] in {"price_update", "product_publish", "product_unpublish"} else "medium"
+        risk = "high" if state["action_type"] in {"price_update", "product_publish", "product_unpublish", "composite"} else "medium"
         reason = "该操作会修改商品交易状态，必须人工审批" if risk == "high" else "该操作会创建营销预算，执行前需要确认"
-        return {"risk_level": risk, "approval_reason": reason, "status": "waiting_approval", "events": [*state["events"], _event("Risk Agent", "approval_required", reason)]}
+        change_pct = abs(float(state.get("parameters", {}).get("change_pct", 0)))
+        required_role = "admin" if change_pct > 15 else "editor" if change_pct > 10 else "user"
+        reason = f"{reason}；要求 {required_role} 级审批"
+        return {"risk_level": risk, "approval_reason": reason, "required_approval_role": required_role, "status": "waiting_approval", "events": [*state["events"], _event("Risk Agent", "approval_required", reason)]}
 
     async def _approval_gate(self, state: ExecutionState):
         if not state.get("approved"):
@@ -230,6 +256,20 @@ class LangGraphExecutionAgent:
     async def _tool_executor(self, state: ExecutionState):
         before = dict(state["product"])
         action_type = state["action_type"]
+        if action_type == "composite":
+            completed_steps = []
+            price_response = await self.mcp.call_tool("update_product_price", {"product_id": state["product_id"], "new_price": float(state["parameters"]["new_price"]), "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})
+            completed_steps.append({"id": "price", "status": "completed", "result": price_response})
+            campaign = state["parameters"]["campaign"]
+            try:
+                campaign_response = await self.mcp.call_tool("create_marketing_campaign", {"product_id": state["product_id"], "name": campaign["name"], "daily_budget": campaign["daily_budget"], "target_acos_pct": campaign["target_acos_pct"], "approved_task_id": state["task_id"]})
+                completed_steps.append({"id": "campaign", "status": "completed", "result": campaign_response})
+            except Exception:
+                await self.mcp.call_tool("rollback_product", {"product_id": state["product_id"], "price": float(before["price"]), "listing_status": None, "expected_version": int(price_response["after"]["catalog_version"]), "approved_task_id": state["task_id"]})
+                completed_steps.append({"id": "price_compensation", "status": "completed"})
+                raise
+            result = {"task_id": state["task_id"], "status": "completed", "environment": "sandbox", "action_type": action_type, "before": before, "after": price_response["after"], "parameters": state["parameters"], "campaign": campaign_response, "steps": completed_steps, "mcp": {"server": "ecommerce-operations", "transport": "stdio", "tools": ["update_product_price", "create_marketing_campaign"]}}
+            return {"status": "completed", "result": result, "events": [*state["events"], _event("Tool Executor", "dag_completed", "复合任务 DAG 全部步骤执行成功")]}
         if action_type == "price_update":
             tool_name = "update_product_price"
             response = await self.mcp.call_tool(tool_name, {"product_id": state["product_id"], "new_price": float(state["parameters"]["new_price"]), "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})

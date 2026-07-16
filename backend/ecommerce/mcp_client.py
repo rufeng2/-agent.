@@ -11,7 +11,11 @@ from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from prometheus_client import Counter, Histogram
 from backend.ecommerce.tool_response import MCPToolError, ToolResponse, ToolStatus
+
+MCP_CALLS = Counter("ecommerce_mcp_tool_calls_total", "MCP tool calls", ["tool", "status"])
+MCP_LATENCY = Histogram("ecommerce_mcp_tool_latency_seconds", "MCP tool latency", ["tool"])
 
 
 class EcommerceMCPClient:
@@ -76,8 +80,8 @@ class EcommerceMCPClient:
             try:
                 async with self.session() as session:
                     result = await session.call_tool(name, arguments, read_timeout_seconds=timedelta(seconds=20))
-                self._failures = 0
             except Exception:
+                MCP_CALLS.labels(name, "transport_error").inc()
                 self._failures += 1
                 if self._failures >= 3:
                     self._circuit_open_until = time.monotonic() + 30
@@ -86,10 +90,13 @@ class EcommerceMCPClient:
                 raise
             finally:
                 self.calls += 1
-                self.total_latency_ms += (time.perf_counter() - started) * 1000
+                elapsed = time.perf_counter() - started
+                self.total_latency_ms += elapsed * 1000
+                MCP_LATENCY.labels(name).observe(elapsed)
         if result.isError:
             message = " ".join(getattr(item, "text", "") for item in result.content).strip()
             self._record_failure()
+            MCP_CALLS.labels(name, "protocol_error").inc()
             raise MCPToolError(ToolResponse.error("MCP_PROTOCOL_ERROR", message or f"MCP tool {name} failed", retryable=True))
         if result.structuredContent:
             payload = result.structuredContent
@@ -100,7 +107,10 @@ class EcommerceMCPClient:
         response = ToolResponse.model_validate(raw)
         if response.status == ToolStatus.ERROR:
             self._record_failure()
+            MCP_CALLS.labels(name, response.code).inc()
             raise MCPToolError(response)
+        self._failures = 0
+        MCP_CALLS.labels(name, response.status.value).inc()
         return response.data
 
     def _record_failure(self) -> None:

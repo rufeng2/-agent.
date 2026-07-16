@@ -81,7 +81,7 @@ async def test_structured_supervisor_plan_routes_specialist(tmp_path, monkeypatc
     await repository.initialize()
     agent = LangGraphExecutionAgent(repository, EcommerceDataLoader().load_cached())
 
-    async def fake_plan(_goal):
+    async def fake_plan(_goal, _context):
         return ExecutionPlan(action_type="product_unpublish", product_id="P003", parameters={}, confidence=0.98, reasoning="inventory risk")
 
     monkeypatch.setattr(agent.supervisor, "plan", fake_plan)
@@ -117,4 +117,20 @@ async def test_native_checkpoint_restores_pending_interrupt(tmp_path):
     completed = await second.approve_and_run(task.id, "workspace-1", "operator", task.version)
     assert completed.status == "completed"
     await connection2.close()
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_composite_task_executes_price_then_campaign_dag(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    agent = LangGraphExecutionAgent(repository, EcommerceDataLoader().load_cached())
+
+    task = await agent.create_task("把轻量跑步鞋价格调整到269元并创建新品推广活动", "workspace-1", "operator")
+    assert [step["id"] for step in task.state["steps"]] == ["price", "campaign"]
+    completed = await agent.approve_and_run(task.id, "workspace-1", "operator", task.version)
+
+    assert completed.result["action_type"] == "composite"
+    assert [step["status"] for step in completed.result["steps"]] == ["completed", "completed"]
+    assert completed.result["campaign"]["status"] == "active"
     await repository.dispose()

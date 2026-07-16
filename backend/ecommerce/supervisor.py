@@ -20,7 +20,7 @@ class StructuredSupervisor:
     def __init__(self, dataset: EcommerceDataset):
         self.dataset = dataset
 
-    async def plan(self, goal: str) -> ExecutionPlan | None:
+    async def plan(self, goal: str, context: list[dict] | None = None) -> ExecutionPlan | None:
         if not settings.DEEPSEEK_API_KEY:
             return None
         products = [{"product_id": item.product_id, "name": item.name} for item in self.dataset.products]
@@ -31,7 +31,7 @@ class StructuredSupervisor:
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": "You are an ecommerce execution supervisor. Return JSON only. Allowed actions: price_update, product_publish, product_unpublish, marketing_plan. Never invent a product id. price_update parameters require new_price. marketing_plan parameters require goal."},
-                {"role": "user", "content": json.dumps({"goal": goal, "products": products}, ensure_ascii=False)},
+                {"role": "user", "content": json.dumps({"goal": goal, "products": products, "recent_tasks": context or []}, ensure_ascii=False)},
             ],
         )
         content = response.choices[0].message.content or "{}"

@@ -1,5 +1,4 @@
 """Execution-first ecommerce API."""
-import os
 from pathlib import Path
 import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -38,6 +37,12 @@ def _require_operator(user: dict) -> None:
         raise HTTPException(status_code=403, detail="只读用户不能执行运营变更")
 
 
+def _require_approval_role(user: dict, required: str) -> None:
+    levels = {"viewer": 0, "user": 1, "editor": 2, "admin": 3}
+    if levels.get(user.get("role", "viewer"), 0) < levels.get(required, 1):
+        raise HTTPException(status_code=403, detail=f"该任务需要 {required} 级审批")
+
+
 class ExecutionTaskRequest(BaseModel):
     goal: str
 
@@ -74,10 +79,9 @@ async def _execution_runtime() -> LangGraphExecutionAgent:
     global _execution_agent, _checkpoint_connection
     await _ensure_repository()
     if _execution_agent is None:
-        persistent = "PYTEST_CURRENT_TEST" not in os.environ
-        client = EcommerceMCPClient(_repository.url, persistent=persistent)
-        if persistent:
-            await client.start()
+        # MCP SDK stdio sessions own an AnyIO cancel scope and cannot be shared
+        # across FastAPI request tasks. Use an isolated session per tool call.
+        client = EcommerceMCPClient(_repository.url, persistent=False)
         checkpoint_path = Path("data/langgraph_checkpoints.db")
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         _checkpoint_connection = await aiosqlite.connect(checkpoint_path)
@@ -170,6 +174,10 @@ async def execution_task_detail(task_id: str, user: dict = Depends(get_current_u
 async def approve_execution_task(task_id: str, request: ExecutionApprovalRequest, user: dict = Depends(get_current_user)):
     _require_operator(user)
     workspace_id, operator = _identity(user)
+    task = await _repository.get_execution_task(task_id, workspace_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="执行任务不存在")
+    _require_approval_role(user, task.state.get("required_approval_role", "user"))
     try:
         item = await (await _execution_runtime()).approve_and_run(
             task_id, workspace_id, operator, request.expected_version,
