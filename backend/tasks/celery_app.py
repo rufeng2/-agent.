@@ -17,6 +17,7 @@ celery_app = Celery(
         "backend.tasks.evaluation_task",
         "backend.tasks.cleanup_task",
         "backend.tasks.ecommerce_agent_task",
+        "backend.tasks.ecommerce_automation_task",
     ],
 )
 
@@ -37,5 +38,9 @@ celery_app.conf.beat_schedule = {
     "daily-retention-cleanup": {
         "task": "backend.tasks.cleanup_task.cleanup_expired_data",
         "schedule": 86400.0,
+    },
+    "ecommerce-agent-heartbeat": {
+        "task": "backend.tasks.ecommerce_automation_task.run_due_automations",
+        "schedule": 60.0,
     },
 }

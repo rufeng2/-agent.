@@ -44,35 +44,43 @@ class SpecialistAgent:
             raise PermissionError(f"{self.role} cannot execute {name}")
         return self.registry.execute(name, arguments)
 
-    def analyze(self, question: str) -> SpecialistReport:
+    def analyze(self, question: str, memory: dict | None = None) -> SpecialistReport:
+        memory = memory or {}
         product = self._target_product()
         if self.role == "product_research":
             ranked, rank_trace = self.execute_tool("rank_products", {})
             competitors, competitor_trace = self.execute_tool("analyze_competitor_price", {})
             top = ranked.evidence[0]
-            deliverable = {"recommended_product_id": product.product_id, "recommended_product": product.name, "market_score": 82, "positioning": product.positioning, "competitor_summary": competitors.summary}
+            policy = memory.get("selection_policy", {})
+            deliverable = {"recommended_product_id": product.product_id, "recommended_product": product.name, "market_score": 82, "positioning": product.positioning, "competitor_summary": competitors.summary, "memory_policy": policy}
             return SpecialistReport(self.role, f"选品建议优先评估 {product.name}，并结合竞品价格和评论信号验证市场机会。", [rank_trace, competitor_trace], [*ranked.evidence[:5], *competitors.evidence[:3]], [], deliverable)
         if self.role == "pricing":
             competitor = next(item for item in self.dataset.competitors if item.product_id == product.product_id)
-            recommended = round(max(product.cost * 1.8, min(product.price, competitor.competitor_price * 0.98)), 2)
+            policy = memory.get("pricing_policy", {})
+            minimum_margin = float(policy.get("minimum_margin_pct", 35)) / 100
+            minimum_price = product.cost / max(1 - minimum_margin, 0.01)
+            recommended = round(max(minimum_price, min(product.price, competitor.competitor_price * 0.98)), 2)
             margin = round((recommended - product.cost) / recommended * 100, 2)
             break_even_acos = round((recommended - product.cost) / recommended * 100, 2)
             trace = ToolTraceStep(tool_name="calculate_pricing_model", step_title="核算成本、利润和价格带", input={"product_id": product.product_id}, output_summary=f"建议售价 {recommended} 元，预计毛利率 {margin}%。")
             evidence = [Evidence(label="建议售价", value=f"{recommended} 元", baseline=f"当前 {product.price} 元"), Evidence(label="预计毛利率", value=f"{margin}%", rule="售价必须高于成本并保留投放空间")]
-            return SpecialistReport(self.role, f"建议售价 {recommended} 元，盈亏平衡 ACOS 约 {break_even_acos}%。", [trace], evidence, [], {"recommended_price": recommended, "cost": product.cost, "gross_margin_rate": margin, "break_even_acos": break_even_acos})
+            return SpecialistReport(self.role, f"建议售价 {recommended} 元，盈亏平衡 ACOS 约 {break_even_acos}%。", [trace], evidence, [], {"recommended_price": recommended, "cost": product.cost, "gross_margin_rate": margin, "break_even_acos": break_even_acos, "memory_policy": policy})
         if self.role == "listing":
             workflow = GrowthWorkflowService(self.dataset).generate(product.product_id, "Amazon US", product.category)
             listing = workflow["listing"]
             trace = ToolTraceStep(tool_name="generate_marketplace_listing", step_title="生成 Amazon Listing", input={"product_id": product.product_id, "platform": "Amazon US"}, output_summary=f"已生成标题、5 条卖点和 {len(listing['search_terms'])} 个搜索词。")
+            listing["brand_policy"] = memory.get("brand_policy", {})
             return SpecialistReport(self.role, "Amazon US Listing 草稿和合规检查已完成。", [trace], [Evidence(label="Listing 合规", value=workflow["compliance"]["status"], rule="绝对化、医疗宣称、标题长度")], workflow["compliance"]["issues"], listing)
         if self.role == "advertising":
             anomalies, anomaly_trace = self.execute_tool("detect_anomalies", {})
             campaign, campaign_trace = self.execute_tool("generate_campaign_plan", {"goal": "新品冷启动" if "新品" in question else "大促增长"})
-            deliverable = {"daily_budget": 300, "campaign_structure": ["自动广告采词", "手动广泛拓词", "手动精准承接转化词"], "optimization_rules": ["花费超过目标 CPA 且零转化时降价", "转化率高于 10% 的词转入精准组", "每 3 天复盘搜索词和否定词"]}
+            policy = memory.get("advertising_policy", {})
+            deliverable = {"daily_budget": min(300, float(policy.get("daily_budget_limit", 500))), "target_acos_pct": policy.get("target_acos_pct", 35), "campaign_structure": ["自动广告采词", "手动广泛拓词", "手动精准承接转化词"], "optimization_rules": ["花费超过目标 CPA 且零转化时降价", "转化率高于 10% 的词转入精准组", "每 3 天复盘搜索词和否定词"], "memory_policy": policy}
             return SpecialistReport(self.role, "采用自动采词、广泛拓词和精准转化三层广告结构，小预算验证后逐步放量。", [anomaly_trace, campaign_trace], [*anomalies.evidence[:3], *campaign.evidence[:3]], campaign.warnings, deliverable)
         topics = list(dict.fromkeys(item.topic for item in self.dataset.reviews if item.product_id == product.product_id))[:5]
         rfm, rfm_trace = self.execute_tool("analyze_customer_rfm", {})
-        deliverable = {"faq": [f"如何处理关于“{topic}”的问题？" for topic in topics] or ["如何正确使用和维护商品？"], "reply_policy": "先确认问题与订单信息，再提供解决方案；退款和补发必须保留人工审批。", "alert_rules": ["评分低于 3 星立即预警", "同类问题 24 小时出现 3 次时同步商品专员"]}
+        policy = memory.get("service_policy", {})
+        deliverable = {"faq": [f"如何处理关于“{topic}”的问题？" for topic in topics] or ["如何正确使用和维护商品？"], "reply_policy": f"使用 {policy.get('tone', 'empathetic')} 语气；先确认问题与订单信息，再提供解决方案；退款和补发必须保留人工审批。", "alert_rules": ["评分低于 3 星立即预警", "同类问题 24 小时出现 3 次时同步商品专员"], "memory_policy": policy}
         return SpecialistReport(self.role, "已根据评价主题生成 FAQ、回复原则和差评预警规则。", [rfm_trace], rfm.evidence[:3], [], deliverable)
 
     def _target_product(self):
@@ -109,8 +117,8 @@ class MultiAgentCoordinator:
             return ["customer_service"]
         return ["product_research", "pricing", "advertising"]
 
-    def run_specialist(self, role: str, question: str) -> SpecialistReport:
-        return SpecialistAgent(role, self.dataset).analyze(question)
+    def run_specialist(self, role: str, question: str, memory: dict | None = None) -> SpecialistReport:
+        return SpecialistAgent(role, self.dataset).analyze(question, memory)
 
     def review(self, reports: list[SpecialistReport]) -> dict:
         evidence_count = sum(len(report.evidence) for report in reports)

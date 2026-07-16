@@ -29,6 +29,7 @@ from backend.ecommerce.growth_workflow import GrowthWorkflowService
 from backend.ecommerce.operations_center import build_operations_center
 from backend.ecommerce.action_agent import CommerceActionAgent
 from backend.ecommerce.llm import configured_team_planner
+from backend.ecommerce.automation import AutomationService, WEBHOOK_PROMPTS
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -68,6 +69,14 @@ class CommerceActionRequest(BaseModel):
     action_type: str
     product_id: str
     parameters: dict = {}
+
+
+class MemoryUpdateRequest(BaseModel):
+    value: dict
+
+
+class AutomationToggleRequest(BaseModel):
+    enabled: bool
 
 
 async def _simulation_result():
@@ -143,6 +152,76 @@ async def execute_commerce_action(recommendation_id: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ApiResponse(data=receipt)
+
+
+@router.get("/team/memories", response_model=ApiResponse)
+async def team_memories():
+    await _ensure_repository()
+    items = await _repository.list_agent_memories("workspace-demo")
+    if not items:
+        from backend.ecommerce.agent_memory import DEFAULT_AGENT_MEMORIES
+        for agent, memories in DEFAULT_AGENT_MEMORIES.items():
+            for key, value in memories.items():
+                await _repository.upsert_agent_memory("workspace-demo", agent, key, value, "system")
+        items = await _repository.list_agent_memories("workspace-demo")
+    return ApiResponse(data=[{"agent": item.agent, "key": item.memory_key, "value": item.value, "source": item.source, "updated_at": item.updated_at.isoformat()} for item in items])
+
+
+@router.put("/team/memories/{agent}/{memory_key}", response_model=ApiResponse)
+async def update_team_memory(agent: str, memory_key: str, request: MemoryUpdateRequest):
+    from backend.ecommerce.multi_agent import TEAM_ROLES
+    if agent not in TEAM_ROLES:
+        raise HTTPException(status_code=400, detail="unknown specialist agent")
+    await _ensure_repository()
+    item = await _repository.upsert_agent_memory("workspace-demo", agent, memory_key, request.value, "user")
+    return ApiResponse(data={"agent": item.agent, "key": item.memory_key, "value": item.value, "source": item.source})
+
+
+def _automation_data(item) -> dict:
+    return {"id": item.id, "name": item.name, "trigger_type": item.trigger_type, "interval_minutes": item.interval_minutes, "task_prompt": item.task_prompt, "enabled": item.enabled, "last_run_at": item.last_run_at.isoformat() if item.last_run_at else None, "run_count": item.run_count}
+
+
+@router.get("/automations", response_model=ApiResponse)
+async def automations():
+    await _ensure_repository()
+    items = await AutomationService(_repository).ensure_defaults("workspace-demo")
+    return ApiResponse(data=[_automation_data(item) for item in items])
+
+
+@router.put("/automations/{rule_id}", response_model=ApiResponse)
+async def toggle_automation(rule_id: str, request: AutomationToggleRequest):
+    try:
+        await _ensure_repository()
+        item = await AutomationService(_repository).set_enabled(rule_id, "workspace-demo", request.enabled)
+        return ApiResponse(data=_automation_data(item))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="automation rule not found") from exc
+
+
+@router.post("/automations/{rule_id}/run", response_model=ApiResponse, status_code=202)
+async def run_automation(rule_id: str):
+    try:
+        await _ensure_repository()
+        service = AutomationService(_repository, await _dataset(), configured_team_planner())
+        job = await service.trigger(rule_id, "workspace-demo")
+        asyncio.create_task(service.job_service.run_inline(job.id, "workspace-demo"))
+        return ApiResponse(data={"job_id": job.id, "status": job.status})
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="automation rule not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/automations/webhooks/{event_type}", response_model=ApiResponse, status_code=202)
+async def automation_webhook(event_type: str):
+    prompt = WEBHOOK_PROMPTS.get(event_type)
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="unsupported webhook event")
+    await _ensure_repository()
+    service = EcommerceJobService(_repository, await _dataset(), configured_team_planner())
+    job = await service.create_job(prompt, "workspace-demo", "", f"webhook-{event_type}-{time.time_ns()}")
+    asyncio.create_task(service.run_inline(job.id, "workspace-demo"))
+    return ApiResponse(data={"job_id": job.id, "event_type": event_type, "status": job.status})
 
 
 @router.get("/products", response_model=ApiResponse)

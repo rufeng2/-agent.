@@ -11,3 +11,9 @@ def test_celery_task_is_routed_to_ecommerce_queue():
 
 def test_development_runtime_defaults_to_inline_execution():
     assert settings.AGENT_EXECUTION_MODE in {"inline", "celery"}
+
+
+def test_celery_beat_schedules_ecommerce_heartbeat():
+    schedule = celery_app.conf.beat_schedule["ecommerce-agent-heartbeat"]
+    assert schedule["task"] == "backend.tasks.ecommerce_automation_task.run_due_automations"
+    assert schedule["schedule"] == 60.0

@@ -15,12 +15,13 @@ def test_frontend_uses_ecommerce_product_identity():
     router = read("frontend/src/router/index.ts")
 
     assert "智能电商运营 Agent 平台" in app
-    assert "运营驾驶舱" in app
-    assert "运营 Agent" in app
+    assert "主管工作台" in app
+    assert "团队与自动化" in app
     assert "运营知识库" in app
     assert "智能电商运营 Agent 平台" in login
     assert 'path: "/dashboard"' in router
     assert 'path: "/agent"' in router
+    assert 'path: "/team-automation"' in router
     assert 'path: "/recommendations"' in router
     assert "企业知识库问答" not in app + login + router
 
@@ -97,8 +98,10 @@ def test_enterprise_agent_routes_and_workflows_are_exposed():
     assert 'path: "/customers"' in router
     assert 'path: "/runs"' in router
     assert 'path: "/agent-evaluation"' in router
-    assert "客户分析" in app
+    assert "团队与自动化" in app
     assert "运行中心" in app
+    assert "客户分析" not in app
+    assert "活动策略" not in app
     assert "sessions:" in client
     assert "sessionDetail:" in client
     assert "runSummary:" in client

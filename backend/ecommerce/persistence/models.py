@@ -155,3 +155,28 @@ class ActionExecutionModel(Base):
     receipt: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="completed")
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+
+class AgentMemoryModel(Base):
+    __tablename__ = "ecommerce_agent_memories"
+    workspace_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    agent: Mapped[str] = mapped_column(String(64), primary_key=True)
+    memory_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    source: Mapped[str] = mapped_column(String(64), default="system")
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+
+
+class AutomationRuleModel(Base):
+    __tablename__ = "ecommerce_automation_rules"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(String(128), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    trigger_type: Mapped[str] = mapped_column(String(32), index=True)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=1440)
+    task_prompt: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)

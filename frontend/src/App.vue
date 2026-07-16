@@ -14,17 +14,13 @@
         </div>
       </div>
       <nav>
-        <router-link to="/dashboard" title="运营驾驶舱"><el-icon><DataBoard /></el-icon><span class="sidebar-copy">运营驾驶舱</span></router-link>
-        <router-link to="/operations-center" title="运营任务中心"><el-icon><Checked /></el-icon><span class="sidebar-copy">运营任务中心</span></router-link>
+        <router-link to="/agent" title="主管工作台"><el-icon><ChatDotRound /></el-icon><span class="sidebar-copy">主管工作台</span></router-link>
+        <router-link to="/team-automation" title="团队与自动化"><el-icon><Timer /></el-icon><span class="sidebar-copy">团队与自动化</span></router-link>
         <router-link to="/action-console" title="智能执行台"><el-icon><Setting /></el-icon><span class="sidebar-copy">智能执行台</span></router-link>
-        <router-link to="/agent" title="运营 Agent"><el-icon><ChatDotRound /></el-icon><span class="sidebar-copy">运营 Agent</span></router-link>
+        <router-link to="/dashboard" title="经营数据"><el-icon><DataBoard /></el-icon><span class="sidebar-copy">经营数据</span></router-link>
         <router-link to="/products" title="商品分析"><el-icon><Goods /></el-icon><span class="sidebar-copy">商品分析</span></router-link>
-        <router-link to="/customers" title="客户分析"><el-icon><User /></el-icon><span class="sidebar-copy">客户分析</span></router-link>
-        <router-link to="/campaigns" title="活动策略"><el-icon><Calendar /></el-icon><span class="sidebar-copy">活动策略</span></router-link>
-        <router-link to="/growth-workflow" title="跨境增长工作流"><el-icon><TrendCharts /></el-icon><span class="sidebar-copy">跨境增长</span></router-link>
         <router-link to="/recommendations" title="建议审批"><el-icon><Checked /></el-icon><span class="sidebar-copy">建议审批</span></router-link>
         <router-link to="/runs" title="Agent 运行中心"><el-icon><Timer /></el-icon><span class="sidebar-copy">运行中心</span></router-link>
-        <router-link to="/agent-evaluation" title="电商 Agent 评测"><el-icon><TrendCharts /></el-icon><span class="sidebar-copy">Agent 评测</span></router-link>
         <router-link to="/knowledge" title="运营知识库"><el-icon><Files /></el-icon><span class="sidebar-copy">运营知识库</span></router-link>
         <router-link v-if="auth.isAdmin" to="/evaluation" title="分析质量评测"><el-icon><DataAnalysis /></el-icon><span class="sidebar-copy">质量评测</span></router-link>
         <router-link v-if="auth.isAdmin" to="/admin" title="运营管理后台"><el-icon><Setting /></el-icon><span class="sidebar-copy">运营管理</span></router-link>

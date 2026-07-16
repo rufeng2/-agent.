@@ -28,6 +28,12 @@ const router = createRouter({
       meta: { title: "智能执行台", requiresAuth: true },
     },
     {
+      path: "/team-automation",
+      name: "team-automation",
+      component: () => import("@/views/Ecommerce/TeamAutomation.vue"),
+      meta: { title: "团队与自动化", requiresAuth: true },
+    },
+    {
       path: "/agent",
       name: "agent",
       component: () => import("@/views/Ecommerce/AgentWorkspace.vue"),

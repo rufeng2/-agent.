@@ -18,3 +18,4 @@ class EcommerceAgentState(TypedDict, total=False):
     risk_review: dict
     planner_used: bool
     planner_fallback: str
+    agent_memories: dict[str, dict]

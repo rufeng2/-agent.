@@ -37,13 +37,14 @@ class EcommerceGraphRuntime:
         builder.add_edge("complete", END)
         return builder.compile()
 
-    async def run(self, question: str, context: list[dict], user_id: str = "demo-user", workspace_id: str = "default", session_id: str = "", run_id: str = "") -> EcommerceAgentState:
+    async def run(self, question: str, context: list[dict], user_id: str = "demo-user", workspace_id: str = "default", session_id: str = "", run_id: str = "", agent_memories: dict[str, dict] | None = None) -> EcommerceAgentState:
         return await self.graph.ainvoke({
             "question": question, "context": context, "user_id": user_id,
             "workspace_id": workspace_id, "session_id": session_id, "run_id": run_id,
             "status": "created", "node_trace": [], "warnings": [], "analysis": None,
             "selected_agents": [], "specialist_reports": [], "risk_review": {},
             "planner_used": False, "planner_fallback": "",
+            "agent_memories": agent_memories or {},
         })
 
     async def _load_context(self, state: EcommerceAgentState):
@@ -71,7 +72,7 @@ class EcommerceGraphRuntime:
             trace = [*state.get("node_trace", []), role]
             if role not in state.get("selected_agents", []):
                 return {"node_trace": trace}
-            report = MultiAgentCoordinator(self.dataset).run_specialist(role, state["question"])
+            report = MultiAgentCoordinator(self.dataset).run_specialist(role, state["question"], state.get("agent_memories", {}).get(role, {}))
             return {"specialist_reports": [*state.get("specialist_reports", []), report], "node_trace": trace}
         return execute
 

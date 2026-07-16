@@ -11,7 +11,7 @@ from backend.ecommerce.persistence.models import (
     ToolExecutionModel,
     EvaluationRunModel,
     SimulationStateModel,
-    AgentJobModel, AgentEventModel, CatalogStateModel, ActionExecutionModel,
+    AgentJobModel, AgentEventModel, CatalogStateModel, ActionExecutionModel, AgentMemoryModel, AutomationRuleModel,
 )
 
 
@@ -257,4 +257,51 @@ class EcommerceRepository:
             item = ActionExecutionModel(recommendation_id=recommendation_id, action_type=action_type, payload=payload, receipt=receipt)
             session.add(item)
             await session.commit()
+            return item
+
+    async def list_agent_memories(self, workspace_id: str, agent: str = "") -> list[AgentMemoryModel]:
+        async with self.database.sessions() as session:
+            statement = select(AgentMemoryModel).where(AgentMemoryModel.workspace_id == workspace_id)
+            if agent:
+                statement = statement.where(AgentMemoryModel.agent == agent)
+            return list((await session.execute(statement.order_by(AgentMemoryModel.agent, AgentMemoryModel.memory_key))).scalars())
+
+    async def upsert_agent_memory(self, workspace_id: str, agent: str, memory_key: str, value: dict, source: str = "user") -> AgentMemoryModel:
+        async with self.database.sessions() as session:
+            item = await session.get(AgentMemoryModel, (workspace_id, agent, memory_key))
+            if item is None:
+                item = AgentMemoryModel(workspace_id=workspace_id, agent=agent, memory_key=memory_key, value=value, source=source)
+                session.add(item)
+            else:
+                item.value = value
+                item.source = source
+            await session.commit()
+            return item
+
+    async def create_automation_rule(self, workspace_id: str, name: str, trigger_type: str, interval_minutes: int, task_prompt: str, enabled: bool = True) -> AutomationRuleModel:
+        async with self.database.sessions() as session:
+            item = AutomationRuleModel(workspace_id=workspace_id, name=name, trigger_type=trigger_type, interval_minutes=interval_minutes, task_prompt=task_prompt, enabled=enabled)
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def list_automation_rules(self, workspace_id: str) -> list[AutomationRuleModel]:
+        async with self.database.sessions() as session:
+            return list((await session.execute(select(AutomationRuleModel).where(AutomationRuleModel.workspace_id == workspace_id).order_by(AutomationRuleModel.created_at))).scalars())
+
+    async def get_automation_rule(self, rule_id: str, workspace_id: str) -> AutomationRuleModel | None:
+        async with self.database.sessions() as session:
+            return (await session.execute(select(AutomationRuleModel).where(AutomationRuleModel.id == rule_id, AutomationRuleModel.workspace_id == workspace_id))).scalar_one_or_none()
+
+    async def update_automation_rule(self, rule_id: str, workspace_id: str, enabled: bool | None = None, mark_run: bool = False) -> AutomationRuleModel | None:
+        async with self.database.sessions() as session:
+            item = (await session.execute(select(AutomationRuleModel).where(AutomationRuleModel.id == rule_id, AutomationRuleModel.workspace_id == workspace_id))).scalar_one_or_none()
+            if item:
+                if enabled is not None:
+                    item.enabled = enabled
+                if mark_run:
+                    from datetime import datetime, timezone
+                    item.last_run_at = datetime.now(timezone.utc)
+                    item.run_count += 1
+                await session.commit()
             return item

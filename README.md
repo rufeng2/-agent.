@@ -68,7 +68,7 @@ flowchart LR
 
 模型不能直接修改数据库、执行任意代码或绕过高风险审批。数据计算由确定性工具完成，大模型只负责规划和解释。
 
-当前已完成主管调度、五专员权限与交付物、“新品从 0 到上架”完整团队链路、审批和沙箱执行。OpenClaw 教程中的消息渠道、Heartbeat/Cron 主动巡检、Webhook 和按专员隔离的长期记忆仍属于后续阶段，README 不将其标记为已实现。
+当前已完成主管调度、五专员权限与交付物、“新品从 0 到上架”完整团队链路、审批和沙箱执行。每个专员拥有按工作区隔离的长期策略记忆，定价底线、广告预算、Listing 合规要求等会直接约束交付物；系统同时提供 Heartbeat/Cron 主动巡检、手动触发和订单、退货、库存、差评 Webhook 入口。飞书、Telegram 等外部消息渠道和真实电商平台连接器仍属于后续阶段。
 
 配置 `DEEPSEEK_API_KEY` 后，DeepSeek 主管会实际选择所需专员并汇总五类交付物，执行模式记录为 `openclaw_team_llm`，同时保存 Token 用量。模型超时、网络异常或返回未知角色时，系统拒绝非法路由并切换到确定性主管，记录明确的降级原因。
 
@@ -88,6 +88,7 @@ flowchart LR
 
 ## 功能页面
 
+- **团队与自动化**：查看五个专员的独立策略记忆，维护定价、广告、Listing 和客服边界；启停或立即运行广告日报、竞品价格、库存与差评巡检。
 - **智能执行台**：Agent 生成商品上架、下架、调价和营销计划提案，经风险校验与人工审批后调用业务工具执行，并将结果写回模拟商品系统。
 - **运营任务中心**：覆盖店铺商品、营销推广、数据分析、客户服务、团队协同、供应链和平台应急七个工作域，将实时指标转成负责人、截止时间、证据和验收指标明确的每日任务。
 - **运营驾驶舱**：GMV 趋势、经营指标、归因、漏斗和预测。
@@ -189,6 +190,7 @@ Windows 环境也可以直接运行 `一键启动.bat`。
 ```powershell
 $env:AGENT_EXECUTION_MODE="celery"
 .venv\Scripts\celery.exe -A backend.tasks.celery_app.celery_app worker -Q ecommerce_agent --loglevel=INFO
+.venv\Scripts\celery.exe -A backend.tasks.celery_app.celery_app beat --loglevel=INFO
 ```
 
 也可以使用仓库中的 Docker Compose 配置启动完整依赖。
