@@ -15,11 +15,6 @@
             <el-form-item label="密码"><el-input v-model="login.password" size="large" type="password" show-password :prefix-icon="Lock" autocomplete="current-password" @keyup.enter="submitLogin" /></el-form-item>
             <el-button type="primary" size="large" class="full" :loading="loading" @click="submitLogin">登录</el-button>
           </el-form>
-          <div v-if="sso.oidc || sso.ldap" class="enterprise">
-            <el-divider>企业身份认证</el-divider>
-            <el-button v-if="sso.oidc" size="large" class="full" @click="oidcLogin"><el-icon><OfficeBuilding /></el-icon>使用企业 SSO 登录</el-button>
-            <p v-if="sso.ldap">此账号页已支持企业 LDAP 账号直接登录</p>
-          </div>
         </el-tab-pane>
         <el-tab-pane label="注册账号" name="register">
           <el-form label-position="top" @submit.prevent="submitRegister">
@@ -37,10 +32,9 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue"
 import { useRouter } from "vue-router"
-import { Lock, OfficeBuilding, User } from "@element-plus/icons-vue"
+import { Lock, User } from "@element-plus/icons-vue"
 import { ElMessage } from "element-plus"
 import { useAuthStore } from "@/store/auth"
-import { operationsAPI } from "@/api/client"
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -48,10 +42,8 @@ const tab = ref("login")
 const loading = ref(false)
 const login = reactive({ username: "", password: "" })
 const register = reactive({ username: "", password: "" })
-const sso = reactive({ oidc: false, ldap: false })
 
 onMounted(async () => {
-  try { Object.assign(sso, (await operationsAPI.ssoConfig()).data) } catch {}
   const params = new URLSearchParams(location.search)
   const token = params.get("token")
   if (token) {
@@ -92,9 +84,6 @@ async function submitRegister() {
   }
 }
 
-function oidcLogin() {
-  location.href = "/api/sso/oidc/login"
-}
 </script>
 
 <style scoped>
