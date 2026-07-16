@@ -1,4 +1,6 @@
 import time
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -10,6 +12,7 @@ from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.metrics import build_dashboard
 from backend.ecommerce.hybrid_agent import HybridEcommerceAgent
 from backend.ecommerce.events import analysis_events
+from backend.ecommerce.evaluation import EvaluationCase, evaluate_cases
 from backend.ecommerce.persistence.repository import EcommerceRepository, VersionConflict
 from backend.ecommerce.observability import percentile
 from backend.ecommerce.segmentation import build_product_analysis
@@ -178,6 +181,30 @@ async def run_detail(run_id: str):
         {"tool_name": tool.tool_name, "input": tool.input_data, "output_summary": tool.output_summary, "latency_ms": tool.latency_ms, "status": tool.status}
         for tool in await _repository.list_tool_executions(run_id)
     ]
+    return ApiResponse(data=data)
+
+
+@router.get("/agent/evaluations", response_model=ApiResponse)
+async def evaluation_runs():
+    await _ensure_repository()
+    return ApiResponse(data=[{"id": item.id, "mode": item.mode, "metrics": item.metrics, "created_at": item.created_at.isoformat()} for item in await _repository.list_evaluation_runs()])
+
+
+@router.post("/agent/evaluations/run", response_model=ApiResponse)
+async def run_evaluation(online: bool = False):
+    await _ensure_repository()
+    raw = json.loads(Path("data/ecommerce/evaluation_cases.json").read_text(encoding="utf-8"))
+    cases = [EvaluationCase.model_validate(item) for item in raw]
+    agent = HybridEcommerceAgent(_dataset(), use_configured_planner=online)
+
+    async def analyze_case(case: EvaluationCase):
+        return (await agent.analyze(case.question)).model_dump()
+
+    report = await evaluate_cases(cases, analyze_case)
+    mode = "online" if online and settings.DEEPSEEK_API_KEY else "deterministic"
+    persisted = await _repository.create_evaluation_run(mode, report.model_dump())
+    data = report.model_dump()
+    data.update({"id": persisted.id, "mode": mode, "created_at": persisted.created_at.isoformat()})
     return ApiResponse(data=data)
 
 

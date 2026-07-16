@@ -11,9 +11,15 @@ from backend.ecommerce.segmentation import build_product_analysis
 class EcommerceTools:
     def __init__(self, dataset: EcommerceDataset):
         self.dataset = dataset
+        self._dashboard = None
+
+    def _get_dashboard(self):
+        if self._dashboard is None:
+            self._dashboard = build_dashboard(self.dataset)
+        return self._dashboard
 
     def get_kpi_snapshot(self):
-        dashboard = build_dashboard(self.dataset)
+        dashboard = self._get_dashboard()
         return dashboard, ToolTraceStep(
             tool_name="get_kpi_snapshot",
             step_title="读取经营指标快照",
@@ -22,7 +28,7 @@ class EcommerceTools:
         )
 
     def explain_gmv_attribution(self):
-        dashboard = build_dashboard(self.dataset)
+        dashboard = self._get_dashboard()
         strongest = min(dashboard.gmv_attribution, key=lambda item: item.delta_value)
         return dashboard.gmv_attribution, ToolTraceStep(
             tool_name="explain_gmv_attribution",
@@ -32,7 +38,7 @@ class EcommerceTools:
         )
 
     def detect_anomalies(self):
-        dashboard = build_dashboard(self.dataset)
+        dashboard = self._get_dashboard()
         return dashboard.anomalies, ToolTraceStep(
             tool_name="detect_anomalies",
             step_title="识别经营异常",

@@ -9,6 +9,12 @@ class EcommerceAgent:
 
     def analyze(self, question: str) -> AgentAnalysis:
         intent = self._detect_intent(question)
+        if intent == "customer_analysis":
+            return self._advanced_analysis(question, "analyze_customer_rfm", "客户 RFM 与复购分析已完成。")
+        if intent == "competitor_analysis":
+            return self._advanced_analysis(question, "analyze_competitor_price", "竞品价格竞争力分析已完成。")
+        if intent == "funnel_analysis":
+            return self._advanced_analysis(question, "analyze_conversion_funnel", "曝光到支付转化漏斗分析已完成。")
         if intent == "campaign_planning":
             return self._campaign(question)
         if intent == "ad_review":
@@ -18,13 +24,31 @@ class EcommerceAgent:
         return self._business_diagnosis(question)
 
     def _detect_intent(self, question: str) -> str:
-        if any(word in question for word in ["大促", "活动", "参加"]):
+        if any(goal in question for goal in ["清仓库存", "新品冷启动", "大促增长", "会员复购"]) and any(word in question for word in ["活动", "方案", "制定"]):
             return "campaign_planning"
+        if any(word in question for word in ["库存", "补货", "断货", "安全库存"]):
+            return "inventory_risk"
         if any(word in question for word in ["广告", "ROI", "投放", "预算"]):
             return "ad_review"
-        if any(word in question for word in ["库存", "补货"]):
-            return "inventory_risk"
+        if any(word in question for word in ["RFM", "客户", "用户", "复购", "LTV", "会员分层"]):
+            return "customer_analysis"
+        if any(word in question for word in ["竞品", "价格指数", "价格竞争力"]):
+            return "competitor_analysis"
+        if any(word in question for word in ["漏斗", "曝光到支付", "点击到访问", "加购后", "转化环节"]):
+            return "funnel_analysis"
+        if any(word in question for word in ["大促", "活动", "参加"]):
+            return "campaign_planning"
         return "business_diagnosis"
+
+    def _advanced_analysis(self, question: str, tool_name: str, title: str) -> AgentAnalysis:
+        result, trace = getattr(self.tools, tool_name)()
+        evidence = result.evidence or [Evidence(label=key, value=str(value), rule="deterministic metric") for key, value in result.metrics.items()]
+        return AgentAnalysis(
+            question=question, intent="business_diagnosis", summary=result.summary,
+            tool_trace=[trace], evidence=evidence,
+            recommendations=[RecommendedAction.create(title, "analysis_followup", "low", result.summary, "提升运营决策效率。", evidence[:4])],
+            risk_level="high", confidence=0.86,
+        )
 
     def _business_diagnosis(self, question: str) -> AgentAnalysis:
         dashboard, kpi_trace = self.tools.get_kpi_snapshot()

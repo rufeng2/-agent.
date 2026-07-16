@@ -9,6 +9,7 @@ from backend.ecommerce.persistence.models import (
     ApprovalRecordModel,
     RecommendationModel,
     ToolExecutionModel,
+    EvaluationRunModel,
 )
 
 
@@ -131,4 +132,16 @@ class EcommerceRepository:
     async def list_tool_executions(self, run_id: str) -> list[ToolExecutionModel]:
         async with self.database.sessions() as session:
             statement = select(ToolExecutionModel).where(ToolExecutionModel.run_id == run_id).order_by(ToolExecutionModel.created_at)
+            return list((await session.execute(statement)).scalars())
+
+    async def create_evaluation_run(self, mode: str, metrics: dict) -> EvaluationRunModel:
+        async with self.database.sessions() as session:
+            item = EvaluationRunModel(mode=mode, metrics=metrics)
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def list_evaluation_runs(self) -> list[EvaluationRunModel]:
+        async with self.database.sessions() as session:
+            statement = select(EvaluationRunModel).order_by(EvaluationRunModel.created_at.desc())
             return list((await session.execute(statement)).scalars())
