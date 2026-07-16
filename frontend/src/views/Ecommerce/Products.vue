@@ -20,6 +20,8 @@
     <div class="panel table-panel">
       <el-table :data="products" stripe>
         <el-table-column prop="name" label="商品" min-width="150" />
+        <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="row.listing_status === 'listed' ? 'success' : 'info'">{{ row.listing_status === 'listed' ? '已上架' : '已下架' }}</el-tag></template></el-table-column>
+        <el-table-column label="售价" width="100"><template #default="{ row }"><strong>{{ row.price }}</strong><small v-if="row.price !== row.base_price">原价 {{ row.base_price }}</small></template></el-table-column>
         <el-table-column prop="category" label="类目" width="110" />
         <el-table-column prop="segment" label="商品分层" width="110">
           <template #default="{ row }"><el-tag>{{ row.segment }}</el-tag></template>

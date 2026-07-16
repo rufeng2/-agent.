@@ -135,6 +135,8 @@ export const operationsAPI = {
 export const ecommerceAPI = {
   dashboard: () => client.get("/ecommerce/dashboard"),
   operationsCenter: () => client.get("/ecommerce/operations-center"),
+  createActionProposal: (action_type: string, product_id: string, parameters: Record<string, any> = {}) => client.post("/ecommerce/actions/proposals", { action_type, product_id, parameters }),
+  executeAction: (recommendationId: string) => client.post(`/ecommerce/actions/${recommendationId}/execute`),
   products: () => client.get("/ecommerce/products"),
   simulationState: () => client.get("/ecommerce/simulation/state"),
   advanceSimulation: (expected_version: number) => client.post("/ecommerce/simulation/advance", { expected_version }),

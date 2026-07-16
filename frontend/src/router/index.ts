@@ -22,6 +22,12 @@ const router = createRouter({
       meta: { title: "运营任务中心", requiresAuth: true },
     },
     {
+      path: "/action-console",
+      name: "action-console",
+      component: () => import("@/views/Ecommerce/ActionConsole.vue"),
+      meta: { title: "智能执行台", requiresAuth: true },
+    },
+    {
       path: "/agent",
       name: "agent",
       component: () => import("@/views/Ecommerce/AgentWorkspace.vue"),

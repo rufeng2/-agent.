@@ -135,3 +135,23 @@ class AgentEventModel(Base):
     event_type: Mapped[str] = mapped_column(String(64))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+
+class CatalogStateModel(Base):
+    __tablename__ = "ecommerce_catalog_state"
+    product_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    listing_status: Mapped[str] = mapped_column(String(32), default="listed", index=True)
+    price_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+
+
+class ActionExecutionModel(Base):
+    __tablename__ = "ecommerce_action_executions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    recommendation_id: Mapped[str] = mapped_column(ForeignKey("ecommerce_recommendations.id"), unique=True, index=True)
+    action_type: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    receipt: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="completed")
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)

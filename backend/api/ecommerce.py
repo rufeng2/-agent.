@@ -27,6 +27,7 @@ from backend.ecommerce.simulation import SimulationEngine
 from backend.ecommerce.runtime.service import EcommerceJobService
 from backend.ecommerce.growth_workflow import GrowthWorkflowService
 from backend.ecommerce.operations_center import build_operations_center
+from backend.ecommerce.action_agent import CommerceActionAgent
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -60,6 +61,12 @@ class GrowthWorkflowRequest(BaseModel):
     product_id: str
     platform: str = "Amazon US"
     market_keyword: str = ""
+
+
+class CommerceActionRequest(BaseModel):
+    action_type: str
+    product_id: str
+    parameters: dict = {}
 
 
 async def _simulation_result():
@@ -110,15 +117,47 @@ async def operations_center():
     return ApiResponse(data=build_operations_center(await _dataset()))
 
 
+@router.post("/actions/proposals", response_model=ApiResponse)
+async def create_action_proposal(request: CommerceActionRequest):
+    await _ensure_repository()
+    try:
+        proposal = CommerceActionAgent(await _dataset()).propose(request.action_type, request.product_id, request.parameters)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="product not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item = await _repository.create_recommendation(proposal["title"], proposal["action_type"], proposal["risk_level"], proposal["reason"], proposal["expected_impact"], [{"action_payload": proposal["payload"]}])
+    return ApiResponse(data={"proposal": proposal, "recommendation": _recommendation_data(item)})
+
+
+@router.post("/actions/{recommendation_id}/execute", response_model=ApiResponse)
+async def execute_commerce_action(recommendation_id: str):
+    await _ensure_repository()
+    try:
+        receipt = await CommerceActionAgent(await _dataset(), _repository).execute(recommendation_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="action recommendation not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ApiResponse(data=receipt)
+
+
 @router.get("/products", response_model=ApiResponse)
 async def products():
     simulation = await _simulation_result()
     dataset = simulation.dataset
     competitors = {item.product_id: item for item in analyze_competitor_prices(dataset)}
+    await _ensure_repository()
+    catalog_states = {item.product_id: item for item in await _repository.list_catalog_states()}
+    product_records = {item.product_id: item for item in dataset.products}
     data = []
     for item in build_product_analysis(dataset):
         row = item.model_dump()
-        row.update({"competitor_price": competitors[item.product_id].competitor_price, "price_gap": competitors[item.product_id].price_gap, "price_index": competitors[item.product_id].price_index, "deltas": simulation.deltas[item.product_id]})
+        state = catalog_states.get(item.product_id)
+        effective_price = state.price_override if state and state.price_override is not None else product_records[item.product_id].price
+        row.update({"price": effective_price, "base_price": product_records[item.product_id].price, "listing_status": state.listing_status if state else "listed", "catalog_version": state.version if state else 0, "competitor_price": competitors[item.product_id].competitor_price, "price_gap": round(effective_price - competitors[item.product_id].competitor_price, 2), "price_index": round(effective_price / competitors[item.product_id].competitor_price * 100, 2), "deltas": simulation.deltas[item.product_id]})
         data.append(row)
     return ApiResponse(data=data)
 

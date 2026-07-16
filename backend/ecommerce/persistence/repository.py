@@ -11,7 +11,7 @@ from backend.ecommerce.persistence.models import (
     ToolExecutionModel,
     EvaluationRunModel,
     SimulationStateModel,
-    AgentJobModel, AgentEventModel,
+    AgentJobModel, AgentEventModel, CatalogStateModel, ActionExecutionModel,
 )
 
 
@@ -168,7 +168,7 @@ class EcommerceRepository:
             item.step += 1
             item.current_date += timedelta(days=1)
             item.events = events
-            item.version += 1
+            item.version = (item.version or 0) + 1
             await session.commit()
             return item
 
@@ -229,3 +229,32 @@ class EcommerceRepository:
         async with self.database.sessions() as session:
             statement = select(AgentEventModel).where(AgentEventModel.job_id == job_id, AgentEventModel.sequence > after_sequence).order_by(AgentEventModel.sequence)
             return list((await session.execute(statement)).scalars())
+
+    async def list_catalog_states(self) -> list[CatalogStateModel]:
+        async with self.database.sessions() as session:
+            return list((await session.execute(select(CatalogStateModel))).scalars())
+
+    async def apply_catalog_action(self, product_id: str, listing_status: str | None = None, price_override: float | None = None) -> CatalogStateModel:
+        async with self.database.sessions() as session:
+            item = await session.get(CatalogStateModel, product_id)
+            if item is None:
+                item = CatalogStateModel(product_id=product_id)
+                session.add(item)
+            if listing_status is not None:
+                item.listing_status = listing_status
+            if price_override is not None:
+                item.price_override = price_override
+            item.version = (item.version or 0) + 1
+            await session.commit()
+            return item
+
+    async def get_action_execution(self, recommendation_id: str) -> ActionExecutionModel | None:
+        async with self.database.sessions() as session:
+            return (await session.execute(select(ActionExecutionModel).where(ActionExecutionModel.recommendation_id == recommendation_id))).scalar_one_or_none()
+
+    async def create_action_execution(self, recommendation_id: str, action_type: str, payload: dict, receipt: dict) -> ActionExecutionModel:
+        async with self.database.sessions() as session:
+            item = ActionExecutionModel(recommendation_id=recommendation_id, action_type=action_type, payload=payload, receipt=receipt)
+            session.add(item)
+            await session.commit()
+            return item
