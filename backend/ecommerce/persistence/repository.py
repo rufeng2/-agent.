@@ -43,6 +43,11 @@ class EcommerceRepository:
             statement = select(AgentSessionModel).options(selectinload(AgentSessionModel.messages)).where(AgentSessionModel.id == session_id)
             return (await session.execute(statement)).scalar_one_or_none()
 
+    async def list_sessions(self, user_id: str) -> list[AgentSessionModel]:
+        async with self.database.sessions() as session:
+            statement = select(AgentSessionModel).where(AgentSessionModel.user_id == user_id).order_by(AgentSessionModel.updated_at.desc())
+            return list((await session.execute(statement)).scalars())
+
     async def create_recommendation(self, title: str, action_type: str, risk_level: str, reason: str, expected_impact: str, evidence: list, run_id: str | None = None) -> RecommendationModel:
         async with self.database.sessions() as session:
             item = RecommendationModel(run_id=run_id, title=title, action_type=action_type, risk_level=risk_level, reason=reason, expected_impact=expected_impact, evidence=evidence)
@@ -74,4 +79,16 @@ class EcommerceRepository:
     async def list_approvals(self, recommendation_id: str) -> list[ApprovalRecordModel]:
         async with self.database.sessions() as session:
             statement = select(ApprovalRecordModel).where(ApprovalRecordModel.recommendation_id == recommendation_id).order_by(ApprovalRecordModel.created_at)
+            return list((await session.execute(statement)).scalars())
+
+    async def get_recommendation(self, recommendation_id: str) -> RecommendationModel | None:
+        async with self.database.sessions() as session:
+            return await session.get(RecommendationModel, recommendation_id)
+
+    async def list_recommendations(self, status: str = "") -> list[RecommendationModel]:
+        async with self.database.sessions() as session:
+            statement = select(RecommendationModel)
+            if status:
+                statement = statement.where(RecommendationModel.status == status)
+            statement = statement.order_by(RecommendationModel.updated_at.desc())
             return list((await session.execute(statement)).scalars())

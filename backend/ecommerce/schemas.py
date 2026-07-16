@@ -257,6 +257,7 @@ class RecommendedAction(BaseModel):
     status: str = "pending"
     operator: str = ""
     updated_at: str = ""
+    version: int = 1
 
     @staticmethod
     def create(
@@ -291,3 +292,4 @@ class AgentAnalysis(BaseModel):
     run_id: str = ""
     execution_mode: str = "deterministic"
     fallback_reason: str = ""
+    session_id: str = ""
