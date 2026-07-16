@@ -91,4 +91,8 @@ npm run test:e2e
 - `production`：可通过 `ECOMMERCE_DATABASE_URL` 切换 PostgreSQL；认证、限流和高风险动作继续 fail-closed。
 - 活动收益与 GMV 预测均标注为“模拟测算”，不能作为真实商业承诺。
 
+## 商品数据模拟
+
+商品分析页支持“推进一天”和“重置模拟”。推进后，系统按固定种子生成大促、差评、低库存、补货、竞品降价或广告优化事件，并同步改变 GMV、订单、转化率、库存、广告 ROI、评分和竞品价格。模拟状态保存在 SQLite，刷新或重启后仍保留；运行时不会改写基线 CSV。
+
 详细组件和数据流见 [架构文档](docs/architecture.md)，简历写法见 [简历项目描述](docs/resume.md)。

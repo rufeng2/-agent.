@@ -37,3 +37,31 @@ test("mobile dashboard keeps navigation and analysis content usable", async ({ p
   await page.locator(".mobile-header button").click()
   await expect(page.getByText("客户分析")).toBeVisible()
 })
+
+test("product simulation advances, survives refresh, and resets", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium")
+  const initialResponse = await request.get("http://127.0.0.1:8001/api/ecommerce/simulation/state")
+  const initial = (await initialResponse.json()).data
+  if (initial.step > 0) {
+    await request.post("http://127.0.0.1:8001/api/ecommerce/simulation/reset", { data: { expected_version: initial.version } })
+  }
+
+  await page.goto("/products")
+  await expect(page.getByText(/模拟日期/)).not.toHaveText("模拟日期 -")
+  const dateBefore = await page.getByText(/模拟日期/).textContent()
+  const gmvBefore = await page.locator(".el-table__body tr").first().locator("td").nth(4).innerText()
+  await page.getByRole("button", { name: "推进一天" }).click()
+
+  await expect(page.getByText("今日经营事件")).toBeVisible()
+  await expect(page.getByText(/模拟日期/)).not.toHaveText(dateBefore || "")
+  const gmvAfter = await page.locator(".el-table__body tr").first().locator("td").nth(4).innerText()
+  expect(gmvAfter).not.toBe(gmvBefore)
+
+  const advancedDate = await page.getByText(/模拟日期/).textContent()
+  await page.reload()
+  await expect(page.getByText(/模拟日期/)).toHaveText(advancedDate || "")
+
+  await page.getByRole("button", { name: "重置模拟" }).click()
+  await page.getByRole("button", { name: "确定" }).click()
+  await expect(page.getByText(/模拟日期/)).toHaveText(dateBefore || "")
+})
