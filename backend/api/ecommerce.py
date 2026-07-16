@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 from backend.ecommerce.agent import EcommerceAgent
 from backend.config import settings
 from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.metrics import build_dashboard
 from backend.ecommerce.hybrid_agent import HybridEcommerceAgent
+from backend.ecommerce.events import analysis_events
 from backend.ecommerce.persistence.repository import EcommerceRepository, VersionConflict
 from backend.ecommerce.segmentation import build_product_analysis
 from backend.ecommerce.tools import EcommerceTools
@@ -96,6 +98,12 @@ async def analyze(request: AgentAnalyzeRequest):
         action.id = persisted.id
         action.version = persisted.version
     return ApiResponse(data=analysis.model_dump())
+
+
+@router.post("/agent/stream")
+async def analyze_stream(request: AgentAnalyzeRequest):
+    response = await analyze(request)
+    return EventSourceResponse(analysis_events(response.data or {}))
 
 
 @router.get("/sessions", response_model=ApiResponse)
