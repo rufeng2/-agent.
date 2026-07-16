@@ -1,5 +1,6 @@
 import time
 import json
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -23,6 +24,7 @@ from backend.ecommerce.campaign_effect import analyze_campaign_effect
 from backend.ecommerce.competitors import analyze_competitor_prices
 from backend.ecommerce.forecast import forecast_gmv
 from backend.ecommerce.simulation import SimulationEngine
+from backend.ecommerce.runtime.service import EcommerceJobService
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -44,6 +46,12 @@ class ApprovalRequest(BaseModel):
 
 class SimulationTransitionRequest(BaseModel):
     expected_version: int
+
+
+class AgentJobRequest(BaseModel):
+    question: str
+    session_id: str = ""
+    idempotency_key: str = ""
 
 
 async def _simulation_result():
@@ -205,6 +213,49 @@ async def analyze(request: AgentAnalyzeRequest):
 async def analyze_stream(request: AgentAnalyzeRequest):
     response = await analyze(request)
     return EventSourceResponse(analysis_events(response.data or {}))
+
+
+@router.post("/agent/jobs", response_model=ApiResponse, status_code=202)
+async def create_agent_job(request: AgentJobRequest):
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="question is required")
+    await _ensure_repository()
+    service = EcommerceJobService(_repository)
+    job = await service.create_job(request.question.strip(), "workspace-demo", request.session_id, request.idempotency_key or f"job-{request.question.strip()}")
+    asyncio.create_task(service.run_inline(job.id, "workspace-demo"))
+    return ApiResponse(data={"job_id": job.id, "run_id": job.run_id, "status": job.status, "status_url": f"/api/ecommerce/agent/jobs/{job.id}"})
+
+
+@router.get("/agent/jobs/{job_id}", response_model=ApiResponse)
+async def agent_job_status(job_id: str):
+    await _ensure_repository()
+    job = await _repository.get_agent_job(job_id, "workspace-demo")
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return ApiResponse(data={"job_id": job.id, "run_id": job.run_id, "status": job.status, "cancelled": job.cancelled, "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat()})
+
+
+@router.delete("/agent/jobs/{job_id}", response_model=ApiResponse)
+async def cancel_agent_job(job_id: str):
+    await _ensure_repository()
+    job = await EcommerceJobService(_repository).cancel(job_id, "workspace-demo")
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return ApiResponse(data={"job_id": job.id, "status": job.status, "cancelled": job.cancelled})
+
+
+@router.get("/agent/jobs/{job_id}/events")
+async def agent_job_events(job_id: str, last_event_id: int = 0):
+    await _ensure_repository()
+    job = await _repository.get_agent_job(job_id, "workspace-demo")
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    async def stream():
+        events = await _repository.list_agent_events(job_id, after_sequence=last_event_id)
+        for item in events:
+            yield {"id": str(item.sequence), "event": item.event_type, "data": json.dumps(item.payload, ensure_ascii=False)}
+    return EventSourceResponse(stream())
 
 
 @router.get("/sessions", response_model=ApiResponse)
