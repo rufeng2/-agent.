@@ -37,6 +37,9 @@
         </el-descriptions>
 
         <h3>Agent 执行轨迹</h3>
+        <div v-if="analysis.agent_trace?.length" class="agent-collaboration">
+          <el-tag v-for="agent in analysis.agent_trace" :key="agent.agent" effect="plain">{{ agent.agent }} · {{ agent.status }}</el-tag>
+        </div>
         <div class="trace-list">
           <article v-for="(step, index) in analysis.tool_trace" :key="step.tool_name" class="trace-step">
             <span>{{ index + 1 }}</span>

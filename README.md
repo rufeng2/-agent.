@@ -40,14 +40,30 @@ flowchart LR
     E --> V
 ```
 
+## 多 Agent 协作
+
+系统采用 Supervisor 模式协作，不是将工具简单包装成 Agent：
+
+| Agent | 职责 | 工具权限 |
+|---|---|---|
+| Supervisor | 识别问题涉及的业务域，选择 2-4 个专家 | 无数据工具权限 |
+| Data Analyst | GMV 归因、异常、漏斗和预测 | KPI、归因、异常、漏斗、预测 |
+| Product Agent | 商品分层、库存和竞品价格 | 商品、异常、竞品工具 |
+| Customer Agent | RFM、复购和客户价值 | 客户分析工具 |
+| Campaign Agent | 活动方案与效果复盘 | 活动计划、活动效果工具 |
+| Risk Reviewer | 检查证据覆盖、风险和警告 | 只读专家报告 |
+| Report Writer | 合并专家结论并输出最终建议 | 只读审核后的报告 |
+
+每个专家具有独立角色、工具白名单和结构化报告。未被 Supervisor 选中的专家不会执行工具，越权调用会直接抛出 `PermissionError`。最终响应通过 `agent_trace` 展示完整协作链路。
+
 ## Agent 执行流程
 
 1. 接收运营问题、会话上下文和幂等键，创建持久化任务。
 2. LangGraph 加载经营上下文，并检查任务是否被取消。
-3. DeepSeek 输出结构化计划；模型不可用时切换到确定性规划器。
-4. Function Calling 校验工具白名单和参数，最多执行 6 个分析步骤。
-5. Python 工具读取模拟数据，计算指标、基线、异常原因和风险等级。
-6. 聚合工具证据，生成摘要、策略建议和预期影响。
+3. Supervisor 根据业务域选择 Data、Product、Customer、Campaign 专家。
+4. 专家在各自工具权限内生成独立的结构化分析报告。
+5. Risk Reviewer 交叉检查证据、警告和高风险动作。
+6. Report Writer 聚合专家结论，生成摘要、策略建议和预期影响。
 7. 持久化会话、运行记录、任务事件和建议审批状态。
 8. 前端轮询 Job 状态并展示工具轨迹、数据证据和可执行建议。
 
@@ -204,6 +220,8 @@ npm run test:e2e
 
 ## 项目边界
 
+- **本地可演示（development）**：默认使用 SQLite、inline Job 和确定性降级，不依赖 Redis、PostgreSQL 或模型 API Key。
+- **Demo 与生产边界（production）**：生产配置可切换 PostgreSQL、Redis、Celery 和真实模型，但仍需按实际企业环境补充平台授权、租户权限和监控告警。
 - 模拟数据用于工程演示，不能代表真实商业结果。
 - 活动收益与 GMV 预测均明确标记为模拟测算。
 - Celery、Redis、PostgreSQL 和真实 DeepSeek API 均为可选生产化配置。

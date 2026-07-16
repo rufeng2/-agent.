@@ -236,7 +236,9 @@ async def agent_job_status(job_id: str):
     job = await _repository.get_agent_job(job_id, "workspace-demo")
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
-    return ApiResponse(data={"job_id": job.id, "run_id": job.run_id, "status": job.status, "cancelled": job.cancelled, "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat()})
+    events = await _repository.list_agent_events(job.id, after_sequence=0)
+    completed = next((item for item in reversed(events) if item.event_type == "completed"), None)
+    return ApiResponse(data={"job_id": job.id, "run_id": job.run_id, "status": job.status, "cancelled": job.cancelled, "result": completed.payload if completed else None, "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat()})
 
 
 @router.delete("/agent/jobs/{job_id}", response_model=ApiResponse)

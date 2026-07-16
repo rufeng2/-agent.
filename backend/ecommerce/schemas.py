@@ -297,3 +297,4 @@ class AgentAnalysis(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     warnings: list[str] = []
+    agent_trace: list[dict[str, str | list[str]]] = []

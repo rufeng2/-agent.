@@ -16,8 +16,11 @@ async def test_langgraph_runs_context_analysis_and_completion_nodes():
     result = await runtime.run("昨天 GMV 为什么下降？", context=[])
 
     assert result["status"] == "completed"
-    assert result["node_trace"] == ["load_context", "execute_agent", "complete"]
-    assert result["analysis"]["execution_mode"] == "deterministic_fallback"
+    assert result["node_trace"] == [
+        "load_context", "supervisor", "data_analyst", "product", "customer",
+        "campaign", "risk_reviewer", "report_writer", "complete",
+    ]
+    assert result["analysis"]["execution_mode"] == "multi_agent_deterministic"
     assert result["analysis"]["tool_trace"]
 
 

@@ -13,3 +13,6 @@ class EcommerceAgentState(TypedDict, total=False):
     analysis: dict | None
     warnings: list[str]
     error: str
+    selected_agents: list[str]
+    specialist_reports: list[object]
+    risk_review: dict
