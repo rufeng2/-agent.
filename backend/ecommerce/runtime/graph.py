@@ -19,21 +19,20 @@ class EcommerceGraphRuntime:
         builder = StateGraph(EcommerceAgentState)
         builder.add_node("load_context", self._load_context)
         builder.add_node("supervisor", self._supervisor)
-        for role in ("data_analyst", "product", "customer", "campaign"):
+        for role in ("product_research", "pricing", "listing", "advertising", "customer_service"):
             builder.add_node(role, self._specialist_node(role))
-        builder.add_node("risk_reviewer", self._risk_reviewer)
-        builder.add_node("report_writer", self._report_writer)
+        builder.add_node("supervisor_summary", self._supervisor_summary)
         builder.add_node("cancelled", self._cancelled)
         builder.add_node("complete", self._complete)
         builder.set_entry_point("load_context")
         builder.add_conditional_edges("load_context", lambda state: "cancelled" if state.get("status") == "cancelling" else "supervisor", {"cancelled": "cancelled", "supervisor": "supervisor"})
-        builder.add_edge("supervisor", "data_analyst")
-        builder.add_edge("data_analyst", "product")
-        builder.add_edge("product", "customer")
-        builder.add_edge("customer", "campaign")
-        builder.add_edge("campaign", "risk_reviewer")
-        builder.add_edge("risk_reviewer", "report_writer")
-        builder.add_edge("report_writer", "complete")
+        builder.add_edge("supervisor", "product_research")
+        builder.add_edge("product_research", "pricing")
+        builder.add_edge("pricing", "listing")
+        builder.add_edge("listing", "advertising")
+        builder.add_edge("advertising", "customer_service")
+        builder.add_edge("customer_service", "supervisor_summary")
+        builder.add_edge("supervisor_summary", "complete")
         builder.add_edge("cancelled", END)
         builder.add_edge("complete", END)
         return builder.compile()
@@ -63,17 +62,13 @@ class EcommerceGraphRuntime:
             return {"specialist_reports": [*state.get("specialist_reports", []), report], "node_trace": trace}
         return execute
 
-    async def _risk_reviewer(self, state: EcommerceAgentState):
-        review = MultiAgentCoordinator(self.dataset).review(state.get("specialist_reports", []))
-        return {"risk_review": review, "node_trace": [*state.get("node_trace", []), "risk_reviewer"]}
-
-    async def _report_writer(self, state: EcommerceAgentState):
-        analysis = MultiAgentCoordinator(self.dataset).synthesize(
-            state["question"], state.get("specialist_reports", []), state.get("risk_review", {})
-        )
+    async def _supervisor_summary(self, state: EcommerceAgentState):
+        coordinator = MultiAgentCoordinator(self.dataset)
+        review = coordinator.review(state.get("specialist_reports", []))
+        analysis = coordinator.synthesize(state["question"], state.get("specialist_reports", []), review)
         analysis.session_id = state.get("session_id", "")
         analysis.run_id = state.get("run_id", "") or analysis.run_id
-        return {"analysis": analysis.model_dump(), "node_trace": [*state.get("node_trace", []), "report_writer"]}
+        return {"analysis": analysis.model_dump(), "risk_review": review, "node_trace": [*state.get("node_trace", []), "supervisor_summary"]}
 
     async def _cancelled(self, state: EcommerceAgentState):
         return {"status": "cancelled", "analysis": None, "node_trace": [*state.get("node_trace", []), "cancelled"]}

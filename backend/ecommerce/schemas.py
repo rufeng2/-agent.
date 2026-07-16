@@ -299,3 +299,4 @@ class AgentAnalysis(BaseModel):
     warnings: list[str] = []
     agent_trace: list[dict[str, str | list[str]]] = []
     scenario_context: dict[str, str] = {}
+    team_deliverables: dict[str, dict] = {}

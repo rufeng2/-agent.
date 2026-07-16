@@ -11,8 +11,8 @@
       <div class="agent-overview">
         <div><span>1</span><strong>提出经营问题</strong><small>选择示例或输入问题</small></div>
         <div><span>2</span><strong>专家协作分析</strong><small>主管分派专业 Agent</small></div>
-        <div><span>3</span><strong>风险复核</strong><small>检查证据与动作风险</small></div>
-        <div><span>4</span><strong>形成运营建议</strong><small>输出结论和下一步动作</small></div>
+        <div><span>3</span><strong>专员交付方案</strong><small>选品、定价、Listing、推广、客服</small></div>
+        <div><span>4</span><strong>主管汇总决策</strong><small>检查冲突并输出完整方案</small></div>
       </div>
       <div class="session-bar">
         <el-select v-model="sessionId" clearable placeholder="新会话" @change="selectSession">
@@ -49,6 +49,13 @@
         <h3>多 Agent 协作流程</h3>
         <div v-if="analysis.agent_trace?.length" class="agent-collaboration">
           <article v-for="(agent, index) in analysis.agent_trace" :key="agent.agent" class="agent-step"><span>{{ index + 1 }}</span><div><strong>{{ agentLabel(agent.agent) }}</strong><small>{{ agentDescription(agent.agent) }}</small></div><el-tag type="success" effect="plain">{{ statusLabel(agent.status) }}</el-tag></article>
+        </div>
+        <div v-if="analysis.team_deliverables && Object.keys(analysis.team_deliverables).length" class="deliverables">
+          <article v-if="analysis.team_deliverables.product_research"><span>选品报告</span><strong>{{ analysis.team_deliverables.product_research.recommended_product }}</strong><p>市场机会评分 {{ analysis.team_deliverables.product_research.market_score }} · {{ analysis.team_deliverables.product_research.positioning }}</p></article>
+          <article v-if="analysis.team_deliverables.pricing"><span>定价方案</span><strong>建议售价 ¥{{ analysis.team_deliverables.pricing.recommended_price }}</strong><p>毛利率 {{ analysis.team_deliverables.pricing.gross_margin_rate }}% · 盈亏平衡 ACOS {{ analysis.team_deliverables.pricing.break_even_acos }}%</p></article>
+          <article v-if="analysis.team_deliverables.listing"><span>Listing 草稿</span><strong>{{ analysis.team_deliverables.listing.title }}</strong><p>{{ analysis.team_deliverables.listing.bullet_points?.length || 0 }} 条卖点 · {{ analysis.team_deliverables.listing.search_terms?.length || 0 }} 个搜索词</p></article>
+          <article v-if="analysis.team_deliverables.advertising"><span>推广方案</span><strong>日预算 ¥{{ analysis.team_deliverables.advertising.daily_budget }}</strong><p>{{ analysis.team_deliverables.advertising.campaign_structure?.join(' · ') }}</p></article>
+          <article v-if="analysis.team_deliverables.customer_service"><span>客服准备</span><strong>{{ analysis.team_deliverables.customer_service.faq?.length || 0 }} 个 FAQ</strong><p>{{ analysis.team_deliverables.customer_service.reply_policy }}</p></article>
         </div>
         <h3>Agent 执行轨迹：分析工具与结果</h3>
         <div class="trace-list">
@@ -87,7 +94,7 @@ import { computed, onMounted, ref } from "vue"
 import { ElMessage } from "element-plus"
 import { ecommerceAPI } from "@/api/client"
 
-const prompts = ["大促前补货周期会不会导致断货？", "广告烧钱但没有成交，预算怎么调？", "高价值老客复购下降怎么召回？", "竞品突然降价，我们要不要跟价？", "新品冷启动第一周怎么投放？"]
+const prompts = ["我要把一款新品从 0 做到 Amazon US 上架，请团队给出完整方案", "帮我调研一个适合跨境销售的商品", "计算主推商品的售价和盈亏平衡 ACOS", "为商品生成 Amazon Listing 和关键词", "新品上架第一周广告怎么投", "根据差评生成客服 FAQ 和回复策略"]
 const question = ref(prompts[0])
 const loading = ref(false)
 const analysis = ref<any>(null)
@@ -98,8 +105,8 @@ const sessionId = ref("")
 const sessions = ref<any[]>([])
 const messages = ref<any[]>([])
 const jobLabel = computed(() => ({ queued: "任务已进入队列", running: "专家正在分析", created: "正在创建任务" } as Record<string, string>)[jobStatus.value] || "正在处理")
-const agentNames: Record<string, string> = { supervisor: "运营主管 Agent", data_analyst: "数据分析 Agent", product: "商品运营 Agent", customer: "客户运营 Agent", campaign: "活动策略 Agent", risk_reviewer: "风险审核 Agent", report_writer: "报告生成 Agent" }
-const agentDescriptions: Record<string, string> = { supervisor: "识别问题并分配专家", data_analyst: "分析 GMV、漏斗与趋势", product: "分析商品、库存与竞品", customer: "分析客户分层与复购", campaign: "评估活动与运营方案", risk_reviewer: "复核证据与动作风险", report_writer: "合并专家结论" }
+const agentNames: Record<string, string> = { supervisor: "主管 Agent", product_research: "选品专员", pricing: "定价专员", listing: "Listing 专员", advertising: "推广专员", customer_service: "客服专员", supervisor_summary: "主管汇总" }
+const agentDescriptions: Record<string, string> = { supervisor: "拆解目标并分派任务", product_research: "市场调研、竞品与选品", pricing: "成本、利润和价格策略", listing: "标题、卖点、关键词和合规", advertising: "广告结构、预算和优化规则", customer_service: "FAQ、差评预警和回复策略", supervisor_summary: "检查冲突并汇总方案" }
 const toolNames: Record<string, string> = { get_kpi_snapshot: "经营指标快照", explain_gmv_attribution: "GMV 变化归因", detect_anomalies: "经营异常检测", rank_products: "商品经营排序", analyze_conversion_funnel: "转化漏斗分析", analyze_customer_rfm: "客户 RFM 分层", analyze_campaign_effect: "活动效果分析", analyze_competitor_price: "竞品价格分析", forecast_gmv: "GMV 趋势预测", generate_campaign_plan: "活动方案生成" }
 const intentNames: Record<string, string> = { business_diagnosis: "综合经营诊断", product_recommendation: "商品推荐", review_conversion: "差评转化治理", campaign_planning: "活动策略", ad_review: "广告投放复盘", inventory_risk: "库存风险", customer_analysis: "客户分析", competitor_analysis: "竞品分析", funnel_analysis: "转化漏斗" }
 const agentLabel = (value: string) => agentNames[value] || value
@@ -109,7 +116,7 @@ const intentLabel = (value: string) => intentNames[value] || value
 const statusLabel = (value: string) => ({ completed: "已完成", passed: "审核通过", insufficient_evidence: "证据不足" } as Record<string, string>)[value] || value
 const riskLabel = (value: string) => ({ high: "高风险", medium: "中风险", low: "低风险" } as Record<string, string>)[value] || value
 const riskType = (value: string) => value === "high" ? "danger" : value === "medium" ? "warning" : "success"
-const modeLabel = (value: string) => ({ llm: "大模型增强分析", multi_agent_deterministic: "多 Agent 稳定分析", deterministic_fallback: "稳定降级分析", deterministic: "规则分析" } as Record<string, string>)[value] || value
+const modeLabel = (value: string) => ({ llm: "大模型增强分析", openclaw_team_deterministic: "跨境电商 Agent 团队", multi_agent_deterministic: "多 Agent 稳定分析", deterministic_fallback: "稳定降级分析", deterministic: "规则分析" } as Record<string, string>)[value] || value
 
 async function loadSessions() { sessions.value = (await ecommerceAPI.sessions()).data.data }
 async function selectSession() { if (!sessionId.value) return; const data=(await ecommerceAPI.sessionDetail(sessionId.value)).data.data; messages.value=data.messages }
@@ -155,4 +162,5 @@ onMounted(loadSessions)
 .agent-overview{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)}.agent-overview>div{display:grid;grid-template-columns:28px 1fr;column-gap:9px;align-items:center}.agent-overview span{grid-row:1/3;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#e8f0fe;color:#1d4ed8;font-weight:700}.agent-overview strong{font-size:13px}.agent-overview small{color:var(--ink-muted)}.job-progress{display:flex;align-items:center;justify-content:space-between;margin:10px 0;padding:12px 14px;border-left:3px solid #2563eb;background:#f5f8ff}.job-progress strong,.job-progress small{display:block}.job-progress small{margin-top:3px;color:var(--ink-muted)}.result-heading{margin-top:18px;padding:16px;border-left:4px solid #16a34a;background:#f4faf6}.result-heading>span{color:#15803d;font-size:12px;font-weight:700}.result-heading h2{margin:6px 0 0}.agent-collaboration{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.agent-step{display:grid;grid-template-columns:28px 1fr auto;gap:9px;align-items:center;padding:12px;border:1px solid var(--border);border-radius:6px;background:#fff}.agent-step>span{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#111827;color:#fff;font-size:12px}.agent-step strong,.agent-step small{display:block}.agent-step small{margin-top:3px;color:var(--ink-muted);font-size:11px}@media(max-width:760px){.agent-overview{grid-template-columns:1fr 1fr}.agent-step{grid-template-columns:28px 1fr}.agent-step .el-tag{grid-column:2}}
 .agent-step{grid-template-columns:28px 1fr}.agent-step .el-tag{grid-column:2;width:max-content}
 .scenario-context{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.scenario-context>div{padding:13px 14px;border:1px solid var(--border);border-radius:6px;background:#fff}.scenario-context span,.scenario-context strong{display:block}.scenario-context span{margin-bottom:5px;color:var(--ink-muted);font-size:12px}.scenario-context strong{line-height:1.5}@media(max-width:760px){.scenario-context{grid-template-columns:1fr}}
+.deliverables{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:14px}.deliverables article{padding:14px;border:1px solid var(--border);border-top:3px solid #0f766e;border-radius:6px;background:#fff}.deliverables span,.deliverables strong{display:block}.deliverables span{color:#0f766e;font-size:12px;font-weight:700}.deliverables strong{margin-top:6px;line-height:1.45}.deliverables p{margin:7px 0 0;color:var(--ink-muted);font-size:12px;line-height:1.55}
 </style>

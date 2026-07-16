@@ -17,10 +17,10 @@ async def test_langgraph_runs_context_analysis_and_completion_nodes():
 
     assert result["status"] == "completed"
     assert result["node_trace"] == [
-        "load_context", "supervisor", "data_analyst", "product", "customer",
-        "campaign", "risk_reviewer", "report_writer", "complete",
+        "load_context", "supervisor", "product_research", "pricing", "listing",
+        "advertising", "customer_service", "supervisor_summary", "complete",
     ]
-    assert result["analysis"]["execution_mode"] == "multi_agent_deterministic"
+    assert result["analysis"]["execution_mode"] == "openclaw_team_deterministic"
     assert result["analysis"]["tool_trace"]
 
 
