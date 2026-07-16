@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Date, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -100,3 +100,14 @@ class EvaluationRunModel(Base):
     mode: Mapped[str] = mapped_column(String(32))
     metrics: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+
+class SimulationStateModel(Base):
+    __tablename__ = "ecommerce_simulation_state"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    current_date: Mapped[date] = mapped_column(Date)
+    step: Mapped[int] = mapped_column(Integer, default=0)
+    seed: Mapped[int] = mapped_column(Integer, default=20260716)
+    events: Mapped[list] = mapped_column(JSON, default=list)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)

@@ -10,6 +10,7 @@ from backend.ecommerce.persistence.models import (
     RecommendationModel,
     ToolExecutionModel,
     EvaluationRunModel,
+    SimulationStateModel,
 )
 
 
@@ -145,3 +146,41 @@ class EcommerceRepository:
         async with self.database.sessions() as session:
             statement = select(EvaluationRunModel).order_by(EvaluationRunModel.created_at.desc())
             return list((await session.execute(statement)).scalars())
+
+    async def get_simulation_state(self, baseline_date) -> SimulationStateModel:
+        async with self.database.sessions() as session:
+            item = await session.get(SimulationStateModel, 1)
+            if item is None:
+                item = SimulationStateModel(id=1, current_date=baseline_date, step=0, seed=20260716, events=[], version=1)
+                session.add(item)
+                await session.commit()
+            return item
+
+    async def advance_simulation(self, events: list[str], expected_version: int) -> SimulationStateModel:
+        async with self.database.sessions() as session:
+            item = await session.get(SimulationStateModel, 1)
+            if item is None:
+                raise KeyError("simulation state")
+            if item.version != expected_version:
+                raise VersionConflict(f"Expected version {expected_version}, found {item.version}")
+            from datetime import timedelta
+            item.step += 1
+            item.current_date += timedelta(days=1)
+            item.events = events
+            item.version += 1
+            await session.commit()
+            return item
+
+    async def reset_simulation(self, baseline_date, expected_version: int) -> SimulationStateModel:
+        async with self.database.sessions() as session:
+            item = await session.get(SimulationStateModel, 1)
+            if item is None:
+                raise KeyError("simulation state")
+            if item.version != expected_version:
+                raise VersionConflict(f"Expected version {expected_version}, found {item.version}")
+            item.current_date = baseline_date
+            item.step = 0
+            item.events = []
+            item.version += 1
+            await session.commit()
+            return item
