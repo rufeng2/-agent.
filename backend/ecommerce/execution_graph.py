@@ -58,17 +58,19 @@ class LangGraphExecutionAgent:
         builder.add_node("pricing_agent", self._pricing_agent)
         builder.add_node("listing_agent", self._listing_agent)
         builder.add_node("marketing_agent", self._marketing_agent)
+        builder.add_node("content_agent", self._content_agent)
         builder.add_node("risk_agent", self._risk_agent)
         builder.add_node("approval_gate", self._approval_gate)
         builder.add_node("tool_executor", self._tool_executor)
         builder.set_entry_point("supervisor")
         builder.add_edge("supervisor", "catalog_agent")
         builder.add_conditional_edges("catalog_agent", lambda state: state["specialist"], {
-            "pricing_agent": "pricing_agent", "listing_agent": "listing_agent", "marketing_agent": "marketing_agent",
+            "pricing_agent": "pricing_agent", "listing_agent": "listing_agent", "marketing_agent": "marketing_agent", "content_agent": "content_agent",
         })
         builder.add_edge("pricing_agent", "risk_agent")
         builder.add_edge("listing_agent", "risk_agent")
         builder.add_edge("marketing_agent", "risk_agent")
+        builder.add_edge("content_agent", "risk_agent")
         builder.add_edge("risk_agent", "approval_gate")
         builder.add_edge("approval_gate", "tool_executor")
         builder.add_edge("tool_executor", END)
@@ -190,7 +192,7 @@ class LangGraphExecutionAgent:
         else:
             action_type, parameters = llm_plan.action_type, llm_plan.parameters
             product = next(item for item in self.dataset.products if item.product_id == llm_plan.product_id)
-            specialist = {"price_update": "pricing_agent", "product_publish": "listing_agent", "product_unpublish": "listing_agent", "marketing_plan": "marketing_agent"}[action_type]
+            specialist = {"price_update": "pricing_agent", "product_publish": "listing_agent", "product_unpublish": "listing_agent", "marketing_plan": "marketing_agent", "content_generation": "content_agent"}[action_type]
             if action_type == "price_update" and "new_price" not in parameters:
                 raise ExecutionPlanningError("LLM 规划缺少 new_price")
         detail = f"{planner_mode} 识别为 {action_type}，分派给 {specialist}"
@@ -238,9 +240,28 @@ class LangGraphExecutionAgent:
         campaign = {"name": f"{state['product']['name']}-{state['parameters']['goal']}", "daily_budget": budget, "target_acos_pct": 35, "channels": ["搜索广告", "商品广告"], "optimization_rule": "连续3天无转化则降价20%"}
         return {"parameters": {**state["parameters"], "campaign": campaign}, "events": [*state["events"], _event("Marketing Agent", "campaign_prepared", f"生成日预算 {budget} 元的推广活动")]}
 
+    async def _content_agent(self, state: ExecutionState):
+        try:
+            copy = await self.supervisor.generate_copy(state["goal"], state["product"])
+        except Exception as exc:
+            product = state["product"]
+            channel = "小红书" if "小红书" in state["goal"] else "通用电商"
+            copy = {
+                "headline": f"{product['name']}，把新鲜带在身边",
+                "body": f"为日常通勤、健身和出行准备的{product['name']}，主打{product['positioning']}。随时制作一杯新鲜饮品，让健康补给更简单。",
+                "selling_points": [product["positioning"], "适合通勤与出行", "随时享用新鲜饮品"],
+                "cta": "立即了解",
+                "channel": channel,
+                "hashtags": [f"#{product['name']}", "#健康生活", "#通勤好物"],
+                "generation_mode": "template",
+                "fallback_reason": type(exc).__name__,
+            }
+        mode = copy["generation_mode"]
+        return {"parameters": {**state["parameters"], "copy": copy}, "events": [*state["events"], _event("Content Agent", "copy_generated", f"使用 {mode} 模式生成 {copy['channel']} 推广文案")]}
+
     async def _risk_agent(self, state: ExecutionState):
         risk = "high" if state["action_type"] in {"price_update", "product_publish", "product_unpublish", "composite"} else "medium"
-        reason = "该操作会修改商品交易状态，必须人工审批" if risk == "high" else "该操作会创建营销预算，执行前需要确认"
+        reason = "该操作会修改商品交易状态，必须人工审批" if risk == "high" else "文案发布或营销预算执行前需要人工确认"
         change_pct = abs(float(state.get("parameters", {}).get("change_pct", 0)))
         required_role = "admin" if change_pct > 15 else "editor" if change_pct > 10 else "user"
         reason = f"{reason}；要求 {required_role} 级审批"
@@ -256,6 +277,9 @@ class LangGraphExecutionAgent:
     async def _tool_executor(self, state: ExecutionState):
         before = dict(state["product"])
         action_type = state["action_type"]
+        if action_type == "content_generation":
+            result = {"task_id": state["task_id"], "status": "completed", "environment": "sandbox", "action_type": action_type, "product": before, "copy": state["parameters"]["copy"]}
+            return {"status": "completed", "result": result, "events": [*state["events"], _event("Tool Executor", "content_delivered", "推广文案已生成并交付，未创建广告活动或产生预算")]}
         if action_type == "composite":
             completed_steps = []
             price_response = await self.mcp.call_tool("update_product_price", {"product_id": state["product_id"], "new_price": float(state["parameters"]["new_price"]), "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})
@@ -295,9 +319,11 @@ class LangGraphExecutionAgent:
             return "product_publish", "listing_agent"
         if any(word in goal for word in ("调价", "价格调整", "调整价格", "改价", "降价", "涨价")) or ("调整" in goal and "价格" in goal):
             return "price_update", "pricing_agent"
+        if any(word in goal for word in ("文案", "标题", "卖点", "种草", "帖子", "广告语")):
+            return "content_generation", "content_agent"
         if any(word in goal for word in ("营销", "推广", "广告", "活动")):
             return "marketing_plan", "marketing_agent"
-        raise ExecutionPlanningError("当前支持上架、下架、调价和创建营销活动，请给出明确执行目标")
+        raise ExecutionPlanningError("当前支持上架、下架、调价、创建营销活动和生成推广文案，请给出明确执行目标")
 
     def _match_product(self, goal: str):
         normalized = goal.lower()

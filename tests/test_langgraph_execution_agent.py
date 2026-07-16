@@ -46,6 +46,35 @@ async def test_langgraph_routes_marketing_task_to_marketing_agent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_copy_request_routes_to_content_agent_and_delivers_copy(tmp_path, monkeypatch):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    agent = LangGraphExecutionAgent(repository, EcommerceDataLoader().load_cached())
+
+    async def fake_generate_copy(_goal, product):
+        return {
+            "headline": "随身鲜榨，轻装出发",
+            "body": f"{product['name']}让通勤与健身后的补给更简单。",
+            "selling_points": ["轻巧便携", "即榨即饮", "容易清洗"],
+            "cta": "立即入手",
+            "channel": "小红书",
+            "hashtags": ["#便携榨汁杯", "#健康生活"],
+            "generation_mode": "llm",
+        }
+
+    monkeypatch.setattr(agent.supervisor, "generate_copy", fake_generate_copy)
+    task = await agent.create_task("给便携榨汁杯做一个小红书推广文案", "workspace-1", "operator")
+    completed = await agent.approve_and_run(task.id, "workspace-1", "operator", task.version)
+
+    assert task.state["action_type"] == "content_generation"
+    assert task.state["specialist"] == "content_agent"
+    assert completed.result["copy"]["headline"] == "随身鲜榨，轻装出发"
+    assert completed.result["copy"]["generation_mode"] == "llm"
+    assert "campaign" not in completed.result
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
 async def test_task_resumes_from_database_after_runtime_restart(tmp_path):
     repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
     await repository.initialize()

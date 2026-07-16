@@ -43,9 +43,23 @@ test("composite task exposes completed DAG steps", async ({ page }) => {
   await expect(page.getByText("campaign · completed")).toBeVisible()
 })
 
+test("copy request delivers copy instead of creating a campaign", async ({ page }) => {
+  await page.goto("/agent")
+  await page.locator(".command-input input").fill("给便携榨汁杯做一个小红书推广文案")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByText("等待人工批准")).toBeVisible({ timeout: 30_000 })
+  await page.getByRole("button", { name: "批准并执行" }).click()
+  await page.getByRole("button", { name: "批准并执行" }).last().click()
+
+  await expect(page.getByRole("heading", { name: "推广文案已生成" })).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator(".copy-result h4")).not.toBeEmpty()
+  await expect(page.getByText(/DeepSeek 生成|模板降级/)).toBeVisible()
+  await expect(page.getByText("已创建推广活动")).toHaveCount(0)
+})
+
 test("mobile execution workspace has no horizontal overflow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile")
   await page.goto("/agent")
-  await expect(page.getByRole("heading", { name: "执行型运营 Agent" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "电商运营执行助手" })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })

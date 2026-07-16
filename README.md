@@ -1,6 +1,6 @@
 # 智能电商运营 Agent
 
-基于 **LangGraph + MCP + FastAPI + Vue 3** 的执行型电商运营 Agent。用户通过自然语言下达调价、商品上架、商品下架和营销活动任务，系统完成多 Agent 路由、策略校验、人工审批、MCP 工具执行、状态回写和回滚。
+基于 **LangGraph + MCP + FastAPI + Vue 3** 的执行型电商运营 Agent。用户通过自然语言下达调价、商品上架、商品下架、营销活动和推广文案任务，系统完成多 Agent 路由、策略校验、人工审批、工具执行、结果交付和回滚。
 
 > 项目使用可复现的模拟电商数据和沙箱业务系统，不连接淘宝、京东、Amazon 等真实平台。
 
@@ -29,6 +29,7 @@
 | Pricing Agent | 校验调价幅度、成本底线和毛利率 |
 | Listing Agent | 准备上架或下架变更 |
 | Marketing Agent | 生成营销活动预算和参数 |
+| Content Agent | 调用 DeepSeek 生成渠道化推广文案；失败时提供明确标识的模板降级结果 |
 | Risk Agent | 判断风险并生成 user/editor/admin 分级审批要求 |
 | Approval Gate | 使用 LangGraph `interrupt` 暂停任务 |
 | Tool Executor | 审批后执行 MCP 工具或复合任务 DAG，失败时执行补偿动作 |
@@ -56,6 +57,7 @@
 - **持久化恢复**：任务、事件、活动和商品状态写入 SQL 数据库；LangGraph 使用 `AsyncSqliteSaver` 保存执行检查点，可在进程重启后恢复。
 - **上下文工程**：Supervisor 读取当前工作区最近任务，并按字符与估算 token 预算裁剪，避免历史无限增长。
 - **可观测性**：`/metrics` 暴露 MCP 调用状态和延迟；任务事件记录规划、审批、工具调用和回滚轨迹。
+- **意图边界**：推广文案路由到 Content Agent 并交付标题、正文、卖点、CTA 和标签；只有明确要求创建活动时才写入营销活动与预算。
 - **并发一致性**：商品写入使用版本号乐观锁；审批接口要求任务版本，重复提交会得到冲突响应。
 
 ## 页面
