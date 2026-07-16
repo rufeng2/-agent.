@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from backend.ecommerce.agent import EcommerceAgent
-from backend.ecommerce.schemas import EcommerceDataset, Evidence, ToolTraceStep
+from backend.ecommerce.schemas import EcommerceDataset, Evidence, RecommendedAction, ToolTraceStep
 from backend.ecommerce.tool_registry import EcommerceToolRegistry
 from backend.ecommerce.tools import EcommerceTools
 
@@ -69,6 +69,8 @@ class MultiAgentCoordinator:
         self.dataset = dataset
 
     def route(self, question: str) -> list[str]:
+        if _is_product_recommendation(question):
+            return ["product"]
         selected = ["data_analyst"]
         domains = (
             ("product", ("商品", "库存", "补货", "竞品", "价格", "选品")),
@@ -101,6 +103,21 @@ class MultiAgentCoordinator:
         analysis.tool_trace = traces or analysis.tool_trace
         analysis.evidence = evidence or analysis.evidence
         analysis.summary = " ".join(report.summary for report in reports if report.summary)
+        if _is_product_recommendation(question):
+            product_report = next((report for report in reports if report.agent == "product"), None)
+            top_product = product_report.evidence[0] if product_report and product_report.evidence else None
+            if top_product:
+                analysis.intent = "product_recommendation"
+                analysis.summary = f"推荐优先考虑 {top_product.label}。该商品在当前模拟数据中的经营表现排名靠前，适合作为首选商品进一步评估。"
+                analysis.evidence = product_report.evidence[:5]
+                analysis.recommendations = [RecommendedAction.create(
+                    title=f"将 {top_product.label} 纳入主推候选",
+                    action_type="product_selection",
+                    risk_level="medium",
+                    reason="商品经营排序显示其综合表现领先，仍需结合目标渠道和预算进行人工确认。",
+                    expected_impact="缩短选品时间，并为后续活动或 Listing 工作流提供候选商品。",
+                    evidence=product_report.evidence[:3],
+                )]
         analysis.execution_mode = "multi_agent_deterministic"
         analysis.warnings = list(dict.fromkeys(review["warnings"]))
         analysis.agent_trace = [
@@ -113,3 +130,7 @@ class MultiAgentCoordinator:
             {"agent": "report_writer", "status": "completed", "tools": []},
         ]
         return analysis
+
+
+def _is_product_recommendation(question: str) -> bool:
+    return any(phrase in question for phrase in ("选一个商品", "商品推荐", "推荐商品", "推荐一个商品", "选品推荐"))

@@ -97,7 +97,7 @@ const jobLabel = computed(() => ({ queued: "任务已进入队列", running: "�
 const agentNames: Record<string, string> = { supervisor: "运营主管 Agent", data_analyst: "数据分析 Agent", product: "商品运营 Agent", customer: "客户运营 Agent", campaign: "活动策略 Agent", risk_reviewer: "风险审核 Agent", report_writer: "报告生成 Agent" }
 const agentDescriptions: Record<string, string> = { supervisor: "识别问题并分配专家", data_analyst: "分析 GMV、漏斗与趋势", product: "分析商品、库存与竞品", customer: "分析客户分层与复购", campaign: "评估活动与运营方案", risk_reviewer: "复核证据与动作风险", report_writer: "合并专家结论" }
 const toolNames: Record<string, string> = { get_kpi_snapshot: "经营指标快照", explain_gmv_attribution: "GMV 变化归因", detect_anomalies: "经营异常检测", rank_products: "商品经营排序", analyze_conversion_funnel: "转化漏斗分析", analyze_customer_rfm: "客户 RFM 分层", analyze_campaign_effect: "活动效果分析", analyze_competitor_price: "竞品价格分析", forecast_gmv: "GMV 趋势预测", generate_campaign_plan: "活动方案生成" }
-const intentNames: Record<string, string> = { business_diagnosis: "综合经营诊断", campaign_planning: "活动策略", ad_review: "广告投放复盘", inventory_risk: "库存风险", customer_analysis: "客户分析", competitor_analysis: "竞品分析", funnel_analysis: "转化漏斗" }
+const intentNames: Record<string, string> = { business_diagnosis: "综合经营诊断", product_recommendation: "商品推荐", campaign_planning: "活动策略", ad_review: "广告投放复盘", inventory_risk: "库存风险", customer_analysis: "客户分析", competitor_analysis: "竞品分析", funnel_analysis: "转化漏斗" }
 const agentLabel = (value: string) => agentNames[value] || value
 const agentDescription = (value: string) => agentDescriptions[value] || "执行专业分析"
 const toolLabel = (value: string) => toolNames[value] || value
