@@ -54,6 +54,15 @@ def test_ecommerce_pages_render_agent_and_analysis_terms():
     assert "建议审批" in content
 
 
+def test_agent_summary_is_structured_instead_of_rendering_raw_markdown():
+    workspace = read("frontend/src/views/Ecommerce/AgentWorkspace.vue")
+
+    assert "summarySections" in workspace
+    assert "parseSummary" in workspace
+    assert "{{ analysis.summary }}" not in workspace
+    assert ':key="`${step.tool_name}-${index}`"' in workspace
+
+
 def test_public_copy_has_no_mojibake_markers():
     files = [
         "README.md",

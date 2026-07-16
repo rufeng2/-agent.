@@ -21,7 +21,7 @@
         <el-button @click="newSession">新建会话</el-button>
       </div>
       <div v-if="messages.length" class="message-history">
-        <p v-for="item in messages" :key="item.id" :class="item.role"><strong>{{ item.role === 'user' ? '我' : 'Agent' }}</strong>{{ item.content }}</p>
+        <p v-for="item in messages" :key="item.id" :class="item.role"><strong>{{ item.role === 'user' ? '我' : 'Agent' }}</strong><span>{{ plainText(item.content) }}</span></p>
       </div>
       <div class="question-bar">
         <el-input v-model="question" size="large" placeholder="例如：昨天 GMV 为什么下降？" @keyup.enter="analyze" />
@@ -34,7 +34,15 @@
 
       <el-empty v-if="!analysis" description="选择一个问题开始分析" />
       <template v-else>
-        <div class="result-heading"><span>分析结论</span><h2>{{ analysis.summary }}</h2></div>
+        <div class="result-heading">
+          <span>分析结论</span>
+          <div class="summary-sections">
+            <article v-for="(section, index) in summarySections" :key="`${section.title}-${index}`">
+              <strong v-if="section.title">{{ section.title }}</strong>
+              <p>{{ section.content }}</p>
+            </article>
+          </div>
+        </div>
         <div v-if="analysis.scenario_context?.scenario" class="scenario-context">
           <div><span>现实运营痛点</span><strong>{{ analysis.scenario_context.pain_point }}</strong></div>
           <div><span>本次需要做的决策</span><strong>{{ analysis.scenario_context.decision }}</strong></div>
@@ -59,7 +67,7 @@
         </div>
         <h3>Agent 执行轨迹：分析工具与结果</h3>
         <div class="trace-list">
-          <article v-for="(step, index) in analysis.tool_trace" :key="step.tool_name" class="trace-step">
+          <article v-for="(step, index) in analysis.tool_trace || []" :key="`${step.tool_name}-${index}`" class="trace-step">
             <span>{{ index + 1 }}</span>
             <div>
               <strong>{{ step.step_title || step.tool_name }}</strong>
@@ -71,26 +79,26 @@
         </div>
 
         <h3>数据证据</h3>
-        <el-table :data="analysis.evidence">
+        <div class="table-scroll"><el-table :data="analysis.evidence || []">
           <el-table-column prop="label" label="指标" />
           <el-table-column prop="value" label="当前值" />
           <el-table-column prop="baseline" label="基准" />
           <el-table-column prop="rule" label="触发规则" />
-        </el-table>
+        </el-table></div>
 
         <h3>建议动作</h3>
-        <el-table :data="analysis.recommendations">
+        <div class="table-scroll"><el-table :data="analysis.recommendations || []">
           <el-table-column prop="title" label="建议" min-width="180" />
           <el-table-column prop="risk_level" label="风险" width="100" />
           <el-table-column prop="expected_impact" label="预期影响" />
-        </el-table>
+        </el-table></div>
       </template>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { ElMessage } from "element-plus"
 import { ecommerceAPI } from "@/api/client"
 
@@ -105,6 +113,7 @@ const sessionId = ref("")
 const sessions = ref<any[]>([])
 const messages = ref<any[]>([])
 const jobLabel = computed(() => ({ queued: "任务已进入队列", running: "专家正在分析", created: "正在创建任务" } as Record<string, string>)[jobStatus.value] || "正在处理")
+const summarySections = computed(() => parseSummary(analysis.value?.summary || ""))
 const agentNames: Record<string, string> = { supervisor: "主管 Agent", product_research: "选品专员", pricing: "定价专员", listing: "Listing 专员", advertising: "推广专员", customer_service: "客服专员", supervisor_summary: "主管汇总" }
 const agentDescriptions: Record<string, string> = { supervisor: "拆解目标并分派任务", product_research: "市场调研、竞品与选品", pricing: "成本、利润和价格策略", listing: "标题、卖点、关键词和合规", advertising: "广告结构、预算和优化规则", customer_service: "FAQ、差评预警和回复策略", supervisor_summary: "检查冲突并汇总方案" }
 const toolNames: Record<string, string> = { get_kpi_snapshot: "经营指标快照", explain_gmv_attribution: "GMV 变化归因", detect_anomalies: "经营异常检测", rank_products: "商品经营排序", analyze_conversion_funnel: "转化漏斗分析", analyze_customer_rfm: "客户 RFM 分层", analyze_campaign_effect: "活动效果分析", analyze_competitor_price: "竞品价格分析", forecast_gmv: "GMV 趋势预测", generate_campaign_plan: "活动方案生成" }
@@ -118,6 +127,35 @@ const riskLabel = (value: string) => ({ high: "高风险", medium: "中风险", 
 const riskType = (value: string) => value === "high" ? "danger" : value === "medium" ? "warning" : "success"
 const modeLabel = (value: string) => ({ llm: "大模型增强分析", openclaw_team_llm: "DeepSeek 主管增强团队", openclaw_team_deterministic: "跨境电商 Agent 稳定团队", multi_agent_deterministic: "多 Agent 稳定分析", deterministic_fallback: "稳定降级分析", deterministic: "规则分析" } as Record<string, string>)[value] || value
 const isLlmMode = (value: string) => value === "llm" || value === "openclaw_team_llm"
+
+function plainText(value: unknown) {
+  return String(value || "")
+    .replace(/\*\*/g, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-*]\s+/gm, "")
+    .trim()
+}
+
+function parseSummary(value: string) {
+  const source = String(value || "").replace(/\r/g, "").trim()
+  if (!source) return [{ title: "", content: "暂无分析结论" }]
+  const marker = /\*\*([^*]+?)\*\*/g
+  const matches = [...source.matchAll(marker)]
+  if (!matches.length) return [{ title: "", content: plainText(source) }]
+  const sections: Array<{ title: string; content: string }> = []
+  matches.forEach((match, index) => {
+    const start = (match.index || 0) + match[0].length
+    const end = index + 1 < matches.length ? matches[index + 1].index : source.length
+    const title = plainText(match[1]).replace(/[：:]\s*$/, "")
+    const content = plainText(source.slice(start, end)).replace(/^[：:]\s*/, "")
+    if (content) sections.push({ title, content })
+  })
+  return sections.length ? sections : [{ title: "", content: plainText(source) }]
+}
+
+function errorMessage(error: any) {
+  return error?.response?.data?.detail || error?.response?.data?.msg || error?.message || "服务暂时不可用"
+}
 
 async function loadSessions() { sessions.value = (await ecommerceAPI.sessions()).data.data }
 async function selectSession() { if (!sessionId.value) return; const data=(await ecommerceAPI.sessionDetail(sessionId.value)).data.data; messages.value=data.messages }
@@ -133,14 +171,16 @@ async function analyze() {
     analysis.value = await waitForJob(created.job_id)
     sessionId.value = analysis.value.session_id
     await Promise.all([loadSessions(), selectSession()])
-  } catch {
-    ElMessage.error("Agent 分析失败")
+  } catch (error: any) {
+    if (jobStatus.value !== "cancelled") ElMessage.error(`Agent 分析失败：${errorMessage(error)}`)
   } finally {
     loading.value = false
   }
 }
 async function waitForJob(id: string): Promise<any> {
+  const deadline = Date.now() + 120_000
   while (true) {
+    if (Date.now() > deadline) throw new Error("分析超过 120 秒，请稍后重试")
     const current = (await ecommerceAPI.jobStatus(id)).data.data
     jobStatus.value = current.status
     if (current.status === "completed") return current.result
@@ -156,6 +196,7 @@ async function cancelJob() {
   if (pollTimer) window.clearTimeout(pollTimer)
 }
 onMounted(loadSessions)
+onBeforeUnmount(() => { if (pollTimer) window.clearTimeout(pollTimer) })
 </script>
 
 <style scoped>
@@ -164,4 +205,6 @@ onMounted(loadSessions)
 .agent-step{grid-template-columns:28px 1fr}.agent-step .el-tag{grid-column:2;width:max-content}
 .scenario-context{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.scenario-context>div{padding:13px 14px;border:1px solid var(--border);border-radius:6px;background:#fff}.scenario-context span,.scenario-context strong{display:block}.scenario-context span{margin-bottom:5px;color:var(--ink-muted);font-size:12px}.scenario-context strong{line-height:1.5}@media(max-width:760px){.scenario-context{grid-template-columns:1fr}}
 .deliverables{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:14px}.deliverables article{padding:14px;border:1px solid var(--border);border-top:3px solid #0f766e;border-radius:6px;background:#fff}.deliverables span,.deliverables strong{display:block}.deliverables span{color:#0f766e;font-size:12px;font-weight:700}.deliverables strong{margin-top:6px;line-height:1.45}.deliverables p{margin:7px 0 0;color:var(--ink-muted);font-size:12px;line-height:1.55}
+.summary-sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px}.summary-sections article{padding:12px 14px;border:1px solid #d7e7dc;border-radius:6px;background:#fff}.summary-sections strong{display:block;color:#166534;font-size:13px}.summary-sections p{margin:5px 0 0;line-height:1.65;overflow-wrap:anywhere}.trace-step{grid-template-columns:32px minmax(0,1fr)}.trace-step code{overflow-wrap:anywhere}.agent-overview{grid-template-columns:repeat(4,minmax(0,1fr))}.table-scroll{max-width:100%;overflow-x:auto}.message-history p{grid-template-columns:54px minmax(0,1fr)}
+@media(max-width:760px){.agent-layout{padding:12px}.session-bar{flex-wrap:wrap}.session-bar .el-select{width:100%}.question-bar{grid-template-columns:1fr}.question-bar .el-button{width:100%}.summary-sections{grid-template-columns:1fr}.quick-prompts .el-button{margin-left:0;white-space:normal;height:auto;min-height:36px}.agent-overview{grid-template-columns:1fr}.mode-row{align-items:flex-start;flex-wrap:wrap}}
 </style>
