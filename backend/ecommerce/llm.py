@@ -16,6 +16,13 @@ class DeepSeekPlanner:
     def __init__(self, api_key: str, model: str = "deepseek-chat"):
         self.model = model
         self.client = AsyncOpenAI(api_key=api_key, base_url="https://api.deepseek.com", timeout=settings.PROVIDER_TIMEOUT_SECONDS)
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+
+    def _record_usage(self, response) -> None:
+        if response.usage:
+            self.prompt_tokens += response.usage.prompt_tokens or 0
+            self.completion_tokens += response.usage.completion_tokens or 0
 
     async def plan(self, question: str, context: list[dict]) -> AgentPlan:
         response = await self.client.chat.completions.create(
@@ -28,6 +35,7 @@ class DeepSeekPlanner:
                 {"role": "user", "content": question},
             ],
         )
+        self._record_usage(response)
         return AgentPlan.model_validate(json.loads(response.choices[0].message.content or "{}"))
 
     async def summarize(self, question: str, results: list[dict]) -> str:
@@ -38,6 +46,7 @@ class DeepSeekPlanner:
                 {"role": "user", "content": json.dumps({"question": question, "tool_results": results}, ensure_ascii=False)},
             ],
         )
+        self._record_usage(response)
         return response.choices[0].message.content or "工具分析已完成。"
 
 

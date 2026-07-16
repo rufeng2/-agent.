@@ -12,6 +12,8 @@ class FakePlanner:
     def __init__(self, plan=None, error=None):
         self.plan_result = plan
         self.error = error
+        self.prompt_tokens = 12
+        self.completion_tokens = 8
 
     async def plan(self, question, context):
         if self.error:
@@ -49,6 +51,9 @@ async def test_hybrid_agent_executes_valid_structured_plan():
     assert [step.tool_name for step in result.tool_trace] == ["get_kpi_snapshot", "explain_gmv_attribution"]
     assert result.evidence
     assert result.summary == "模型基于工具证据生成的经营结论"
+    assert result.prompt_tokens == 12
+    assert result.completion_tokens == 8
+    assert all(step.latency_ms >= 0 for step in result.tool_trace)
 
 
 @pytest.mark.asyncio
@@ -67,3 +72,26 @@ async def test_campaign_goal_from_question_reaches_campaign_tool():
 
     campaign_step = next(step for step in result.tool_trace if step.tool_name == "generate_campaign_plan")
     assert campaign_step.input["goal"] == "新品冷启动"
+
+
+@pytest.mark.asyncio
+async def test_one_failed_tool_keeps_completed_evidence_and_warning():
+    planner = FakePlanner(AgentPlan(
+        intent="business_diagnosis",
+        steps=[PlannedTool(tool_name="forecast_gmv"), PlannedTool(tool_name="get_kpi_snapshot")],
+    ))
+    agent = HybridEcommerceAgent(_dataset(), planner=planner)
+    original = agent.registry.execute
+
+    def execute(name, arguments):
+        if name == "forecast_gmv":
+            raise RuntimeError("forecast unavailable")
+        return original(name, arguments)
+
+    agent.registry.execute = execute
+    result = await agent.analyze("诊断经营情况")
+
+    assert result.execution_mode == "llm"
+    assert [step.tool_name for step in result.tool_trace] == ["get_kpi_snapshot"]
+    assert result.evidence
+    assert "forecast_gmv" in result.warnings[0]

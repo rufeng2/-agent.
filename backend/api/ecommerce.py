@@ -132,9 +132,10 @@ async def analyze(request: AgentAnalyzeRequest):
         run_id=analysis.run_id, session_id=session.id, user_id="demo-user",
         execution_mode=analysis.execution_mode, model=settings.LLM_MODEL if analysis.execution_mode == "llm" else "",
         status="completed", fallback_reason=analysis.fallback_reason, total_latency_ms=latency_ms,
+        prompt_tokens=analysis.prompt_tokens, completion_tokens=analysis.completion_tokens,
     )
     for trace in analysis.tool_trace:
-        await _repository.add_tool_execution(analysis.run_id, trace.tool_name, trace.input, trace.output_summary)
+        await _repository.add_tool_execution(analysis.run_id, trace.tool_name, trace.input, trace.output_summary, latency_ms=trace.latency_ms)
     for action in analysis.recommendations:
         persisted = await _repository.create_recommendation(
             title=action.title, action_type=action.action_type, risk_level=action.risk_level,

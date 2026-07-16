@@ -235,6 +235,7 @@ class ToolTraceStep(BaseModel):
     step_title: str = ""
     input: dict[str, str | int | float | bool]
     output_summary: str
+    latency_ms: float = 0
 
 
 class ToolResult(BaseModel):
@@ -293,3 +294,6 @@ class AgentAnalysis(BaseModel):
     execution_mode: str = "deterministic"
     fallback_reason: str = ""
     session_id: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    warnings: list[str] = []

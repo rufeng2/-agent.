@@ -1,4 +1,5 @@
 from uuid import uuid4
+import time
 
 from pydantic import ValidationError
 
@@ -21,21 +22,32 @@ class HybridEcommerceAgent:
             return self._fallback(question, run_id, "llm_not_configured")
         try:
             plan = await self.planner.plan(question, context or [])
-            results, traces, evidence = [], [], []
+            results, traces, evidence, warnings = [], [], [], []
             for step in plan.steps:
                 arguments = dict(step.input)
                 if step.tool_name == "generate_campaign_plan" and plan.goal and "goal" not in arguments:
                     arguments["goal"] = plan.goal
-                result, trace = self.registry.execute(step.tool_name, arguments)
+                started = time.perf_counter()
+                try:
+                    result, trace = self.registry.execute(step.tool_name, arguments)
+                except Exception as exc:
+                    warnings.append(f"{step.tool_name}: {type(exc).__name__}")
+                    continue
+                trace.latency_ms = round((time.perf_counter() - started) * 1000, 2)
                 results.append(result.model_dump())
                 traces.append(trace)
                 evidence.extend(result.evidence)
+            if not results:
+                return self._fallback(question, run_id, "all_tools_failed")
             baseline = EcommerceAgent(self.dataset).analyze(question)
             baseline.run_id = run_id
             baseline.execution_mode = "llm"
             baseline.tool_trace = traces
             baseline.evidence = evidence or baseline.evidence
             baseline.summary = await self.planner.summarize(question, results)
+            baseline.prompt_tokens = int(getattr(self.planner, "prompt_tokens", 0))
+            baseline.completion_tokens = int(getattr(self.planner, "completion_tokens", 0))
+            baseline.warnings = warnings
             return baseline
         except TimeoutError:
             return self._fallback(question, run_id, "llm_timeout")
