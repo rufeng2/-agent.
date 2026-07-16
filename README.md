@@ -94,6 +94,19 @@ flowchart LR
 - **运行中心**：执行模式、成功率、降级率、Token、耗时和 P95 延迟。
 - **Agent 评估**：意图、工具、参数、证据和风险准确率。
 - **商品模拟**：推进日期或重置模拟，观察经营指标随事件变化。
+- **跨境增长工作流**：Market Research、Listing、Compliance、Human Approval 和 Sandbox Publisher 五阶段协作，从市场洞察推进到受控模拟发布。
+
+## 跨境增长闭环
+
+```text
+Market Research Agent
+  → Listing Writer Agent
+  → Compliance Reviewer Agent
+  → Human Approval
+  → Sandbox Publisher
+```
+
+Market Research Agent 使用项目内商品经营、竞品价格和评价主题生成机会评分；Listing Writer 输出平台标题、五点描述与搜索词；Compliance Reviewer 检查绝对化用语、医疗宣称和标题长度。工作流快照持久化在审批建议中，Publisher 会从数据库重新读取审批状态，未审批或合规未通过时返回 `409`。发布仅生成确定性沙箱回执，不调用真实 Amazon、Temu 或 Walmart。
 
 ## 技术栈
 

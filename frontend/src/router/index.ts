@@ -40,6 +40,12 @@ const router = createRouter({
       meta: { title: "活动策略", requiresAuth: true },
     },
     {
+      path: "/growth-workflow",
+      name: "growth-workflow",
+      component: () => import("@/views/Ecommerce/GrowthWorkflow.vue"),
+      meta: { title: "跨境增长工作流", requiresAuth: true },
+    },
+    {
       path: "/recommendations",
       name: "recommendations",
       component: () => import("@/views/Ecommerce/Recommendations.vue"),

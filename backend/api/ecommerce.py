@@ -25,6 +25,7 @@ from backend.ecommerce.competitors import analyze_competitor_prices
 from backend.ecommerce.forecast import forecast_gmv
 from backend.ecommerce.simulation import SimulationEngine
 from backend.ecommerce.runtime.service import EcommerceJobService
+from backend.ecommerce.growth_workflow import GrowthWorkflowService
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -52,6 +53,12 @@ class AgentJobRequest(BaseModel):
     question: str
     session_id: str = ""
     idempotency_key: str = ""
+
+
+class GrowthWorkflowRequest(BaseModel):
+    product_id: str
+    platform: str = "Amazon US"
+    market_keyword: str = ""
 
 
 async def _simulation_result():
@@ -359,6 +366,58 @@ async def campaign_plan(goal: str = "大促增长"):
     plan["goal"] = normalized_goal
     plan["tool_trace"] = [trace.model_dump()]
     return ApiResponse(data=plan)
+
+
+def _workflow_snapshot(item) -> dict | None:
+    for evidence in item.evidence:
+        if evidence.get("label") == "workflow_snapshot":
+            return evidence.get("workflow")
+    return None
+
+
+@router.post("/growth/workflows", response_model=ApiResponse)
+async def create_growth_workflow(request: GrowthWorkflowRequest):
+    await _ensure_repository()
+    try:
+        workflow = GrowthWorkflowService(await _dataset()).generate(
+            request.product_id, request.platform.strip() or "Amazon US", request.market_keyword
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="product not found") from exc
+    recommendation = None
+    if workflow["compliance"]["status"] == "passed":
+        recommendation = await _repository.create_recommendation(
+            title=f"Publish {workflow['product_name']} listing to {workflow['platform']}",
+            action_type="listing_publish", risk_level="high",
+            reason="Cross-border listing passed automated compliance review and requires human approval.",
+            expected_impact="Create a sandbox listing publication receipt.",
+            evidence=[{"label": "workflow_snapshot", "value": workflow["product_name"], "rule": "approved_before_publish", "workflow": workflow}],
+        )
+    return ApiResponse(data={"workflow": workflow, "recommendation": _recommendation_data(recommendation) if recommendation else None})
+
+
+@router.get("/growth/workflows/{recommendation_id}", response_model=ApiResponse)
+async def growth_workflow_detail(recommendation_id: str):
+    await _ensure_repository()
+    item = await _repository.get_recommendation(recommendation_id)
+    workflow = _workflow_snapshot(item) if item else None
+    if item is None or workflow is None:
+        raise HTTPException(status_code=404, detail="growth workflow not found")
+    return ApiResponse(data={"workflow": workflow, "recommendation": _recommendation_data(item)})
+
+
+@router.post("/growth/workflows/{recommendation_id}/publish", response_model=ApiResponse)
+async def publish_growth_workflow(recommendation_id: str):
+    await _ensure_repository()
+    item = await _repository.get_recommendation(recommendation_id)
+    workflow = _workflow_snapshot(item) if item else None
+    if item is None or workflow is None:
+        raise HTTPException(status_code=404, detail="growth workflow not found")
+    try:
+        receipt = GrowthWorkflowService(await _dataset()).publish(workflow, item.status, item.id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ApiResponse(data={"workflow": workflow, "recommendation": _recommendation_data(item), "receipt": receipt})
 
 
 @router.get("/recommendations", response_model=ApiResponse)

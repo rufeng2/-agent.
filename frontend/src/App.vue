@@ -19,6 +19,7 @@
         <router-link to="/products" title="商品分析"><el-icon><Goods /></el-icon><span class="sidebar-copy">商品分析</span></router-link>
         <router-link to="/customers" title="客户分析"><el-icon><User /></el-icon><span class="sidebar-copy">客户分析</span></router-link>
         <router-link to="/campaigns" title="活动策略"><el-icon><Calendar /></el-icon><span class="sidebar-copy">活动策略</span></router-link>
+        <router-link to="/growth-workflow" title="跨境增长工作流"><el-icon><TrendCharts /></el-icon><span class="sidebar-copy">跨境增长</span></router-link>
         <router-link to="/recommendations" title="建议审批"><el-icon><Checked /></el-icon><span class="sidebar-copy">建议审批</span></router-link>
         <router-link to="/runs" title="Agent 运行中心"><el-icon><Timer /></el-icon><span class="sidebar-copy">运行中心</span></router-link>
         <router-link to="/agent-evaluation" title="电商 Agent 评测"><el-icon><TrendCharts /></el-icon><span class="sidebar-copy">Agent 评测</span></router-link>
