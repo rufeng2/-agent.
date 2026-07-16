@@ -8,7 +8,7 @@ from backend.config import settings
 
 # 需要放在顶层导入
 celery_app = Celery(
-    "knowledge_rag",
+    "ecommerce_agent",
     broker=settings.RABBITMQ_URL,
     backend=settings.REDIS_URL,
     include=[

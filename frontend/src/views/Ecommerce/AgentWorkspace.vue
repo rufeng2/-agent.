@@ -24,6 +24,7 @@
       <div class="quick-prompts">
         <el-button v-for="item in prompts" :key="item" @click="question = item; analyze()">{{ item }}</el-button>
       </div>
+      <div v-if="loading" class="job-controls"><el-button type="danger" plain @click="cancelJob">Cancel job</el-button><el-tag effect="plain">{{ jobStatus }}</el-tag></div>
 
       <el-empty v-if="!analysis" description="选择一个问题开始分析" />
       <template v-else>
@@ -76,6 +77,9 @@ const prompts = ["昨天 GMV 为什么下降？", "哪些商品适合参加大�
 const question = ref(prompts[0])
 const loading = ref(false)
 const analysis = ref<any>(null)
+const jobId = ref("")
+const jobStatus = ref("")
+let pollTimer: number | undefined
 const sessionId = ref("")
 const sessions = ref<any[]>([])
 const messages = ref<any[]>([])
@@ -88,7 +92,10 @@ async function analyze() {
   if (!question.value.trim()) return
   loading.value = true
   try {
-    analysis.value = (await ecommerceAPI.analyze(question.value, sessionId.value)).data.data
+    const created = (await ecommerceAPI.createJob(question.value, sessionId.value)).data.data
+    jobId.value = created.job_id
+    jobStatus.value = created.status
+    analysis.value = await waitForJob(created.job_id)
     sessionId.value = analysis.value.session_id
     await Promise.all([loadSessions(), selectSession()])
   } catch {
@@ -96,6 +103,22 @@ async function analyze() {
   } finally {
     loading.value = false
   }
+}
+async function waitForJob(id: string): Promise<any> {
+  while (true) {
+    const current = (await ecommerceAPI.jobStatus(id)).data.data
+    jobStatus.value = current.status
+    if (current.status === "completed") return current.result
+    if (current.status === "failed" || current.status === "cancelled") throw new Error(current.error || current.status)
+    await new Promise(resolve => { pollTimer = window.setTimeout(resolve, 700) })
+  }
+}
+async function cancelJob() {
+  if (!jobId.value) return
+  await ecommerceAPI.cancelJob(jobId.value)
+  jobStatus.value = "cancelled"
+  loading.value = false
+  if (pollTimer) window.clearTimeout(pollTimer)
 }
 onMounted(loadSessions)
 </script>
