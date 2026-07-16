@@ -135,6 +135,9 @@ export const operationsAPI = {
 export const ecommerceAPI = {
   dashboard: () => client.get("/ecommerce/dashboard"),
   products: () => client.get("/ecommerce/products"),
+  simulationState: () => client.get("/ecommerce/simulation/state"),
+  advanceSimulation: (expected_version: number) => client.post("/ecommerce/simulation/advance", { expected_version }),
+  resetSimulation: (expected_version: number) => client.post("/ecommerce/simulation/reset", { expected_version }),
   analyze: (question: string, session_id = "") => client.post("/ecommerce/agent/analyze", { question, session_id }),
   sessions: () => client.get("/ecommerce/sessions"),
   sessionDetail: (id: string) => client.get(`/ecommerce/sessions/${id}`),

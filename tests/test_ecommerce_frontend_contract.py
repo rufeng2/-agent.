@@ -106,3 +106,16 @@ def test_enterprise_agent_routes_and_workflows_are_exposed():
     assert "模拟测算" in pages
     assert "审批审计" in pages
     assert "RFM" in pages
+
+
+def test_product_page_exposes_durable_simulation_controls_and_deltas():
+    client = read("frontend/src/api/client.ts")
+    products = read("frontend/src/views/Ecommerce/Products.vue")
+
+    assert "simulationState:" in client
+    assert "advanceSimulation:" in client
+    assert "resetSimulation:" in client
+    assert "expected_version" in client
+    for copy in ("模拟日期", "推进一天", "重置模拟", "今日经营事件"):
+        assert copy in products
+    assert "row.deltas" in products
