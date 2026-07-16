@@ -1,98 +1,216 @@
-# 智能电商运营 Agent 平台
+# 智能电商运营 Agent
 
-基于 FastAPI、Vue 3、DeepSeek 和确定性经营分析工具构建的混合 AI Agent。系统面向电商运营诊断、商品与客户分析、活动策略和审批风控，在没有真实电商平台或企业内部数据时仍可完整本地演示。
+面向电商运营诊断、商品经营、用户分层、活动策略和风险审批的企业级 AI Agent 演示项目。
 
-项目未对接淘宝、京东等真实平台，当前也不是生产系统。所有经营数据和策略收益均为可复现的模拟结果。
+项目采用 **LangGraph + Function Calling + FastAPI + Vue 3** 构建，将大模型的意图理解与解释能力，和可验证的数据分析工具结合起来。即使没有真实电商平台、内部数据或模型 API Key，也可以通过可复现的 90 天模拟数据完整演示 Agent 的规划、工具调用、证据生成、策略建议、人工审批和运行评估流程。
 
-## 核心能力
+> 本项目未接入淘宝、京东等真实平台，不是生产交易系统。页面中的经营数据、预测和活动收益均为模拟结果，用于展示工程能力和 Agent 设计方法。
 
-- **混合 Agent**：DeepSeek 负责结构化规划和结果解释，Python 工具负责指标、证据和风险决策；无 API Key 或模型异常时自动进入确定性降级。
-- **90 天经营数据**：固定随机种子生成订单、流量、广告、库存、评价、客户、活动和竞品价格数据。
-- **数据分析**：GMV 归因、转化漏斗、ABC 商品分层、RFM 客户分层、复购率、模拟 LTV、活动增量 ROI、竞品价格指数和 7 天 GMV 预测。
-- **多轮会话**：保存 Agent 会话和消息，支持后续问题引用同一经营上下文。
-- **审批审计**：建议、审批意见、版本和审计记录持久化；高风险动作不会由模型直接执行。
-- **运行可观测性**：记录执行模式、模型、耗时、Token、降级原因和工具轨迹，并统计成功率、降级率和 P95 延迟。
-- **Agent 评测**：40 条标准问题覆盖 8 类场景，评估意图、工具、参数、证据和风险准确率。
+## 项目亮点
+
+- **真实 Agent 编排**：使用 LangGraph 定义状态和执行节点，完成上下文加载、任务执行、取消判断与结果收敛。
+- **结构化 Function Calling**：向模型暴露白名单工具 Schema，校验工具名称、JSON 参数、调用数量和重复调用，避免任意代码执行。
+- **混合决策架构**：DeepSeek 负责意图识别、任务规划和结果解释；Python 工具负责指标计算、经营规则和风险判断。
+- **可靠降级**：未配置 API Key、模型超时或返回异常时，自动使用确定性规划器，保证演示链路仍然可用。
+- **异步任务运行时**：分析请求创建持久化 Job，通过状态和事件记录展示执行过程，支持取消、幂等键和 Celery 队列执行。
+- **数据分析闭环**：覆盖 GMV 归因、转化漏斗、ABC 商品分层、RFM 用户分层、活动增量 ROI、竞品价格和 GMV 预测。
+- **可审计的人机协同**：建议、审批意见、版本号和操作记录持久化；高风险策略必须经过人工审批。
+- **可观测与可评估**：记录模型、执行模式、耗时、Token、工具轨迹和降级原因，并提供 40 条场景评测集。
+- **动态商品模拟**：可推进模拟日期，生成大促、差评、库存、补货、竞品降价和广告优化事件，页面数据随事件变化。
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    U[运营人员] --> V[Vue 3 工作台]
+    V --> A[FastAPI API]
+    A --> J[Agent Job Service]
+    J --> Q{执行模式}
+    Q -->|Inline| G[LangGraph Runtime]
+    Q -->|Celery| C[Celery Worker]
+    C --> G
+    G --> P[DeepSeek Planner]
+    G --> F[确定性降级规划器]
+    P --> T[Function Calling 工具层]
+    F --> T
+    T --> D[经营数据分析]
+    D --> R[(SQLite / PostgreSQL)]
+    G --> E[证据与策略结果]
+    E --> R
+    E --> V
+```
+
+## Agent 执行流程
+
+1. 接收运营问题、会话上下文和幂等键，创建持久化任务。
+2. LangGraph 加载经营上下文，并检查任务是否被取消。
+3. DeepSeek 输出结构化计划；模型不可用时切换到确定性规划器。
+4. Function Calling 校验工具白名单和参数，最多执行 6 个分析步骤。
+5. Python 工具读取模拟数据，计算指标、基线、异常原因和风险等级。
+6. 聚合工具证据，生成摘要、策略建议和预期影响。
+7. 持久化会话、运行记录、任务事件和建议审批状态。
+8. 前端轮询 Job 状态并展示工具轨迹、数据证据和可执行建议。
+
+模型不能直接修改数据库、执行任意代码或绕过高风险审批。数据计算由确定性工具完成，大模型只负责规划和解释。
+
+## 数据分析能力
+
+| 分析模块 | 核心指标与方法 | 业务用途 |
+|---|---|---|
+| GMV 诊断 | 流量、转化率、客单价三因子归因 | 定位销售额变化原因 |
+| 转化漏斗 | 曝光、访问、加购、结算、支付转化 | 识别关键流失环节 |
+| 商品经营 | ABC 分层、毛利率、库存周转、评分、广告 ROI | 选品、补货与淘汰决策 |
+| 用户运营 | RFM、复购率、模拟 LTV | 用户分群与差异化触达 |
+| 活动分析 | 增量 GMV、成本、增量 ROI | 评估活动效果和预算分配 |
+| 竞品分析 | 价格指数、价差、竞争状态 | 调价和促销策略 |
+| 趋势预测 | 7 天 GMV 模拟预测 | 经营目标和库存规划 |
+
+数据生成器使用固定随机种子构造 90 天订单、流量、广告、库存、评价、客户、活动和竞品价格数据，因此结果可复现，也便于自动化测试。
+
+## 功能页面
+
+- **运营驾驶舱**：GMV 趋势、经营指标、归因、漏斗和预测。
+- **运营 Agent**：多轮问答、异步任务状态、工具轨迹、证据与建议。
+- **商品分析**：ABC 分类、库存、毛利、广告、评价和竞品价差。
+- **客户分析**：RFM 分层、复购率、客户价值和人群结构。
+- **活动策略**：按增长目标动态选品，生成差异化打法和模拟收益。
+- **建议审批**：批准、驳回、审批意见、乐观锁版本和审计记录。
+- **运行中心**：执行模式、成功率、降级率、Token、耗时和 P95 延迟。
+- **Agent 评估**：意图、工具、参数、证据和风险准确率。
+- **商品模拟**：推进日期或重置模拟，观察经营指标随事件变化。
 
 ## 技术栈
 
-| 层 | 技术 |
+| 层级 | 技术 |
 |---|---|
-| 后端 | Python、FastAPI、Pydantic、SQLAlchemy asyncio |
-| Agent | DeepSeek OpenAI-compatible API、结构化计划、确定性工具注册表 |
-| 数据 | 90 天 CSV/JSON 模拟数据、SQLite 开发存储、PostgreSQL 生产配置 |
+| Agent | LangGraph、LangChain Core、OpenAI-compatible Function Calling、DeepSeek |
+| 后端 | Python 3.11、FastAPI、Pydantic、SQLAlchemy Async、Alembic |
+| 异步任务 | Celery、Redis（队列模式可选） |
+| 数据存储 | SQLite（本地演示）、PostgreSQL（生产配置） |
 | 前端 | Vue 3、TypeScript、Element Plus、Pinia、Vite |
-| 验证 | pytest、Playwright、vue-tsc、Docker Compose |
+| 质量保障 | pytest、Playwright、vue-tsc、Docker Compose |
 
-## 运行链路
+## 目录结构
 
 ```text
-用户问题 + 会话历史
-  -> DeepSeek 结构化计划（可选）
-  -> 白名单与最多 6 步校验
-  -> 确定性分析工具
-  -> 数据证据与风险策略
-  -> DeepSeek 解释或确定性总结
-  -> 建议持久化与人工审批
+backend/
+  api/ecommerce.py                 电商 API 与 Agent Job 接口
+  ecommerce/agent/                 混合 Agent、规划器和工具注册表
+  ecommerce/analytics/             经营分析算法
+  ecommerce/runtime/               LangGraph、Function Calling、Job Service
+  ecommerce/persistence/           会话、运行、建议、任务和事件仓储
+  tasks/ecommerce_agent_task.py    Celery Agent 任务
+  db/alembic/                       数据库迁移
+frontend/src/views/Ecommerce/      电商运营工作台页面
+data/ecommerce/                    可复现模拟数据与评测集
+scripts/                            数据生成和 Agent 评估脚本
+tests/                              后端、API、运行时和业务测试
+docs/                               架构、设计和简历说明
 ```
 
-模型不能执行任意代码、修改指标、直接访问数据库或绕过审批。
+## 快速启动
 
-## 主要页面
-
-- 运营驾驶舱：90 天趋势、GMV 归因、漏斗和模拟预测
-- 运营 Agent：多轮会话、执行模式、工具轨迹、证据和建议
-- 商品分析：ABC、毛利、周转、投放、评价和竞品价差
-- 客户分析：RFM、复购率和模拟 LTV
-- 活动策略：目标化选品、打法和模拟收益
-- 建议审批：意见、版本与审批审计
-- 运行中心：耗时、Token、降级率和工具明细
-- Agent 评测：质量指标与失败样例
-- 运营知识库：作为商品资料、品牌规则和 SOP 的辅助模块
-
-## 本地运行
-
-项目本地可演示，不要求启动 Redis、PostgreSQL 或配置 DeepSeek API Key。
+### 1. 安装依赖
 
 ```powershell
-# 安装依赖
+python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe -m pip install -r backend\requirements-langchain.txt
+
 cd frontend
 npm install
 cd ..
+```
 
-# 可选：重新生成 90 天数据
-.venv\Scripts\python.exe scripts\generate_ecommerce_data.py --output data\ecommerce
+### 2. 配置环境变量
 
-# 后端
+```powershell
+Copy-Item .env.example .env
+```
+
+不配置 `DEEPSEEK_API_KEY` 也可以运行，系统会使用确定性降级模式。配置后启用真实模型规划和解释。
+
+### 3. 启动后端
+
+```powershell
 .venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
+```
 
-# 前端（新终端）
+### 4. 启动前端
+
+```powershell
 cd frontend
 $env:VITE_API_TARGET="http://127.0.0.1:8001"
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-打开 `http://127.0.0.1:5173/`。不配置 `DEEPSEEK_API_KEY` 时完整使用确定性降级；配置后启用真实结构化规划。
+访问 `http://127.0.0.1:5173/`。
 
-## 验证
+Windows 环境也可以直接运行 `一键启动.bat`。
+
+## 可选：Celery 队列模式
+
+本地默认使用 `inline` 模式，无需 Redis。需要演示分布式任务时，将执行模式切换为 `celery`，并启动 Redis 和 Worker：
 
 ```powershell
+$env:AGENT_EXECUTION_MODE="celery"
+.venv\Scripts\celery.exe -A backend.tasks.celery_app.celery_app worker -Q ecommerce_agent --loglevel=INFO
+```
+
+也可以使用仓库中的 Docker Compose 配置启动完整依赖。
+
+## 数据模拟
+
+重新生成基础数据：
+
+```powershell
+.venv\Scripts\python.exe scripts\generate_ecommerce_data.py --output data\ecommerce
+```
+
+商品页面支持“推进一天”和“重置模拟”。运行时状态保存到数据库，不会改写基础 CSV，因此刷新或重启后仍能保留状态，同时可以随时恢复基线。
+
+## 测试与评估
+
+```powershell
+# 后端完整测试
 .venv\Scripts\python.exe -m pytest -q
+
+# 离线 Agent 评估
 .venv\Scripts\python.exe scripts\evaluate_ecommerce_agent.py
+
+# 前端类型检查与生产构建
 cd frontend
 npm run build
+
+# 浏览器端到端测试
 npm run test:e2e
 ```
 
-## Demo 与生产边界
+当前完整后端测试基线为 **150 passed**。离线评测集包含 40 条标准问题，覆盖 8 类运营场景。
 
-- `development`：SQLite 保存电商会话和审批，本地账号在 PostgreSQL 不可用时可降级，电商分析不依赖 Redis。
-- `production`：可通过 `ECOMMERCE_DATABASE_URL` 切换 PostgreSQL；认证、限流和高风险动作继续 fail-closed。
-- 活动收益与 GMV 预测均标注为“模拟测算”，不能作为真实商业承诺。
+## 工程设计说明
 
-## 商品数据模拟
+### 为什么采用混合 Agent
 
-商品分析页支持“推进一天”和“重置模拟”。推进后，系统按固定种子生成大促、差评、低库存、补货、竞品降价或广告优化事件，并同步改变 GMV、订单、转化率、库存、广告 ROI、评分和竞品价格。模拟状态保存在 SQLite，刷新或重启后仍保留；运行时不会改写基线 CSV。
+纯大模型计算经营指标容易出现幻觉，纯规则系统又难以理解自然语言。本项目将两者拆分：模型负责理解和规划，确定性工具负责计算和决策证据，从而同时获得灵活性、可解释性和可测试性。
 
-详细组件和数据流见 [架构文档](docs/architecture.md)，简历写法见 [简历项目描述](docs/resume.md)。
+### 为什么保留降级路径
+
+企业系统不能因模型超时或配额耗尽而完全不可用。Agent 会记录降级原因，并使用确定性规划器继续执行，保证核心分析能力可用。
+
+### 为什么高风险动作需要审批
+
+调价、预算调整和大规模营销触达会影响收入与客户体验。系统只生成建议，不允许模型直接执行；审批过程记录版本、意见和审计日志。
+
+## 项目边界
+
+- 模拟数据用于工程演示，不能代表真实商业结果。
+- 活动收益与 GMV 预测均明确标记为模拟测算。
+- Celery、Redis、PostgreSQL 和真实 DeepSeek API 均为可选生产化配置。
+- 接入真实平台时，需要补充平台 OAuth、数据同步、权限隔离、数据脱敏和监控告警。
+
+## 简历描述参考
+
+> 设计并实现智能电商运营 Agent，基于 LangGraph 编排任务状态，结合 DeepSeek Function Calling 与 10 类确定性经营分析工具，支持 GMV 归因、漏斗分析、RFM、活动 ROI 和趋势预测；构建异步 Job/Celery 执行、模型故障降级、建议审批审计和 40 条离线评测集，使用 FastAPI、Vue 3、SQLAlchemy 与 PostgreSQL 完成前后端工程化落地，完整后端测试 150 项通过。
+
+更详细的架构说明见 [docs/architecture.md](docs/architecture.md)，简历拆解见 [docs/resume.md](docs/resume.md)。
