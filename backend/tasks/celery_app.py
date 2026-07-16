@@ -16,6 +16,7 @@ celery_app = Celery(
         "backend.tasks.index_task",
         "backend.tasks.evaluation_task",
         "backend.tasks.cleanup_task",
+        "backend.tasks.ecommerce_agent_task",
     ],
 )
 
@@ -28,6 +29,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    task_routes={"backend.tasks.ecommerce_agent_task.run_ecommerce_agent": {"queue": settings.AGENT_CELERY_QUEUE}},
 )
 
 

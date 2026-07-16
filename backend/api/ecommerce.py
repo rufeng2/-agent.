@@ -222,7 +222,11 @@ async def create_agent_job(request: AgentJobRequest):
     await _ensure_repository()
     service = EcommerceJobService(_repository)
     job = await service.create_job(request.question.strip(), "workspace-demo", request.session_id, request.idempotency_key or f"job-{request.question.strip()}")
-    asyncio.create_task(service.run_inline(job.id, "workspace-demo"))
+    if settings.AGENT_EXECUTION_MODE == "celery":
+        from backend.tasks.ecommerce_agent_task import run_ecommerce_agent
+        run_ecommerce_agent.delay(job.id, "workspace-demo")
+    else:
+        asyncio.create_task(service.run_inline(job.id, "workspace-demo"))
     return ApiResponse(data={"job_id": job.id, "run_id": job.run_id, "status": job.status, "status_url": f"/api/ecommerce/agent/jobs/{job.id}"})
 
 

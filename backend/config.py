@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     PROVIDER_TIMEOUT_SECONDS: float = 45.0
     PROVIDER_CIRCUIT_FAILURES: int = 3
     PROVIDER_CIRCUIT_RECOVERY_SECONDS: float = 30.0
+    AGENT_EXECUTION_MODE: str = "inline"
+    AGENT_CELERY_QUEUE: str = "ecommerce_agent"
+    AGENT_JOB_TIME_LIMIT_SECONDS: int = 300
 
     EMBEDDING_MODEL: str = "BAAI/bge-m3"
     EMBEDDING_DIM: int = 1024
