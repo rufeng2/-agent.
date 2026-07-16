@@ -1,5 +1,8 @@
 """Execution-first ecommerce API."""
 import os
+from pathlib import Path
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -23,6 +26,7 @@ _loader = EcommerceDataLoader()
 _repository = EcommerceRepository(settings.ECOMMERCE_DATABASE_URL)
 _repository_ready = False
 _execution_agent: LangGraphExecutionAgent | None = None
+_checkpoint_connection = None
 
 
 def _identity(user: dict) -> tuple[str, str]:
@@ -67,22 +71,30 @@ async def _dataset():
 
 
 async def _execution_runtime() -> LangGraphExecutionAgent:
-    global _execution_agent
+    global _execution_agent, _checkpoint_connection
     await _ensure_repository()
     if _execution_agent is None:
         persistent = "PYTEST_CURRENT_TEST" not in os.environ
         client = EcommerceMCPClient(_repository.url, persistent=persistent)
         if persistent:
             await client.start()
-        _execution_agent = LangGraphExecutionAgent(_repository, await _dataset(), mcp_client=client)
+        checkpoint_path = Path("data/langgraph_checkpoints.db")
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        _checkpoint_connection = await aiosqlite.connect(checkpoint_path)
+        checkpointer = AsyncSqliteSaver(_checkpoint_connection)
+        await checkpointer.setup()
+        _execution_agent = LangGraphExecutionAgent(_repository, await _dataset(), mcp_client=client, checkpointer=checkpointer)
     return _execution_agent
 
 
 async def close_execution_runtime() -> None:
-    global _execution_agent
+    global _execution_agent, _checkpoint_connection
     if _execution_agent is not None:
         await _execution_agent.mcp.close()
         _execution_agent = None
+    if _checkpoint_connection is not None:
+        await _checkpoint_connection.close()
+        _checkpoint_connection = None
 
 
 def _task_data(item) -> dict:

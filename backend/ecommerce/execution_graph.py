@@ -9,6 +9,7 @@ from langgraph.types import Command, interrupt
 from backend.ecommerce.persistence.repository import EcommerceRepository, VersionConflict
 from backend.ecommerce.schemas import EcommerceDataset
 from backend.ecommerce.mcp_client import EcommerceMCPClient
+from backend.ecommerce.supervisor import StructuredSupervisor
 
 
 class ExecutionPlanningError(ValueError):
@@ -39,10 +40,12 @@ def _event(agent: str, event_type: str, detail: str) -> dict[str, Any]:
 
 
 class LangGraphExecutionAgent:
-    def __init__(self, repository: EcommerceRepository, dataset: EcommerceDataset, mcp_client: EcommerceMCPClient | None = None):
+    def __init__(self, repository: EcommerceRepository, dataset: EcommerceDataset, mcp_client: EcommerceMCPClient | None = None, checkpointer=None):
         self.repository = repository
         self.dataset = dataset
         self.mcp = mcp_client or EcommerceMCPClient(repository.url)
+        self.supervisor = StructuredSupervisor(dataset)
+        self.checkpointer = checkpointer or InMemorySaver()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -66,7 +69,7 @@ class LangGraphExecutionAgent:
         builder.add_edge("risk_agent", "approval_gate")
         builder.add_edge("approval_gate", "tool_executor")
         builder.add_edge("tool_executor", END)
-        return builder.compile(checkpointer=InMemorySaver())
+        return builder.compile(checkpointer=self.checkpointer)
 
     async def create_task(self, goal: str, workspace_id: str, operator: str):
         task = await self.repository.create_execution_task(workspace_id, operator, goal)
@@ -159,17 +162,33 @@ class LangGraphExecutionAgent:
 
     async def _supervisor(self, state: ExecutionState):
         goal = state["goal"].strip()
-        action_type, specialist = self._classify_action(goal)
-        product = self._match_product(goal)
-        parameters: dict[str, Any] = {}
-        if action_type == "price_update":
-            match = re.search(r"(?:调整到|调到|改为|售价为|价格为|降到|涨到|至)\s*[¥￥]?\s*(\d+(?:\.\d+)?)", goal)
-            if not match:
-                raise ExecutionPlanningError("调价任务必须给出明确的新价格")
-            parameters["new_price"] = float(match.group(1))
-        elif action_type == "marketing_plan":
-            parameters["goal"] = "新品冷启动" if "新品" in goal or "冷启动" in goal else "大促增长" if "大促" in goal else "日常增长"
-        events = [*state.get("events", []), _event("Supervisor", "task_planned", f"识别为 {action_type}，分派给 {specialist}")]
+        planner_mode, fallback = "llm", ""
+        try:
+            llm_plan = await self.supervisor.plan(goal)
+        except Exception as exc:
+            llm_plan, planner_mode, fallback = None, "rules", type(exc).__name__
+        if llm_plan is None:
+            planner_mode = "rules"
+            action_type, specialist = self._classify_action(goal)
+            product = self._match_product(goal)
+            parameters: dict[str, Any] = {}
+            if action_type == "price_update":
+                match = re.search(r"(?:调整到|调到|改为|售价为|价格为|降到|涨到|至)\s*[¥￥]?\s*(\d+(?:\.\d+)?)", goal)
+                if not match:
+                    raise ExecutionPlanningError("调价任务必须给出明确的新价格")
+                parameters["new_price"] = float(match.group(1))
+            elif action_type == "marketing_plan":
+                parameters["goal"] = "新品冷启动" if "新品" in goal or "冷启动" in goal else "大促增长" if "大促" in goal else "日常增长"
+        else:
+            action_type, parameters = llm_plan.action_type, llm_plan.parameters
+            product = next(item for item in self.dataset.products if item.product_id == llm_plan.product_id)
+            specialist = {"price_update": "pricing_agent", "product_publish": "listing_agent", "product_unpublish": "listing_agent", "marketing_plan": "marketing_agent"}[action_type]
+            if action_type == "price_update" and "new_price" not in parameters:
+                raise ExecutionPlanningError("LLM 规划缺少 new_price")
+        detail = f"{planner_mode} 识别为 {action_type}，分派给 {specialist}"
+        if fallback:
+            detail += f"，降级原因 {fallback}"
+        events = [*state.get("events", []), _event("Supervisor", "task_planned", detail)]
         return {"action_type": action_type, "specialist": specialist, "product_id": product.product_id, "parameters": parameters, "events": events}
 
     async def _catalog_agent(self, state: ExecutionState):

@@ -12,7 +12,7 @@ from backend.ecommerce.persistence.models import (
     EvaluationRunModel,
     SimulationStateModel,
     AgentJobModel, AgentEventModel, CatalogStateModel, ActionExecutionModel, AgentMemoryModel, AutomationRuleModel,
-    ExecutionTaskModel,
+    ExecutionTaskModel, MarketingCampaignModel,
 )
 
 
@@ -348,6 +348,32 @@ class EcommerceRepository:
                 item.result = result
             if error is not None:
                 item.error = error
+            item.version += 1
+            await session.commit()
+            return item
+
+    async def create_campaign(self, workspace_id: str, task_id: str, product_id: str, name: str, daily_budget: float, target_acos_pct: float) -> MarketingCampaignModel:
+        async with self.database.sessions() as session:
+            existing = (await session.execute(select(MarketingCampaignModel).where(MarketingCampaignModel.task_id == task_id))).scalar_one_or_none()
+            if existing:
+                return existing
+            item = MarketingCampaignModel(workspace_id=workspace_id, task_id=task_id, product_id=product_id, name=name, daily_budget=daily_budget, target_acos_pct=target_acos_pct)
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def get_campaign(self, campaign_id: str, workspace_id: str) -> MarketingCampaignModel | None:
+        async with self.database.sessions() as session:
+            return (await session.execute(select(MarketingCampaignModel).where(MarketingCampaignModel.id == campaign_id, MarketingCampaignModel.workspace_id == workspace_id))).scalar_one_or_none()
+
+    async def set_campaign_status(self, campaign_id: str, workspace_id: str, status: str, expected_version: int) -> MarketingCampaignModel:
+        async with self.database.sessions() as session:
+            item = (await session.execute(select(MarketingCampaignModel).where(MarketingCampaignModel.id == campaign_id, MarketingCampaignModel.workspace_id == workspace_id))).scalar_one_or_none()
+            if item is None:
+                raise KeyError(campaign_id)
+            if item.version != expected_version:
+                raise VersionConflict(f"Expected campaign version {expected_version}, found {item.version}")
+            item.status = status
             item.version += 1
             await session.commit()
             return item

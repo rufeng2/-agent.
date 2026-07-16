@@ -1,8 +1,11 @@
 import pytest
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.execution_graph import ExecutionPlanningError, LangGraphExecutionAgent
 from backend.ecommerce.persistence.repository import EcommerceRepository
+from backend.ecommerce.supervisor import ExecutionPlan
 
 
 @pytest.mark.asyncio
@@ -35,6 +38,9 @@ async def test_langgraph_routes_marketing_task_to_marketing_agent(tmp_path):
 
     assert task.state["specialist"] == "marketing_agent"
     assert completed.result["campaign"]["daily_budget"] > 0
+    stored = await repository.get_campaign(completed.result["campaign"]["campaign_id"], "workspace-1")
+    assert stored is not None
+    assert stored.status == "active"
     assert completed.events[-1]["agent"] == "Tool Executor"
     await repository.dispose()
 
@@ -66,4 +72,49 @@ async def test_langgraph_rejects_ambiguous_and_unsafe_tasks(tmp_path):
         await agent.create_task("调整一下价格", "workspace-1", "operator")
     with pytest.raises(ExecutionPlanningError, match="20%"):
         await agent.create_task("把轻量跑步鞋价格调整到100元", "workspace-1", "operator")
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_structured_supervisor_plan_routes_specialist(tmp_path, monkeypatch):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    agent = LangGraphExecutionAgent(repository, EcommerceDataLoader().load_cached())
+
+    async def fake_plan(_goal):
+        return ExecutionPlan(action_type="product_unpublish", product_id="P003", parameters={}, confidence=0.98, reasoning="inventory risk")
+
+    monkeypatch.setattr(agent.supervisor, "plan", fake_plan)
+    task = await agent.create_task("处理库存风险商品", "workspace-1", "operator")
+
+    assert task.state["action_type"] == "product_unpublish"
+    assert task.state["specialist"] == "listing_agent"
+    assert task.events[0]["detail"].startswith("llm")
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_native_checkpoint_restores_pending_interrupt(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    dataset = EcommerceDataLoader().load_cached()
+    checkpoint_path = tmp_path / "checkpoints.db"
+
+    connection1 = await aiosqlite.connect(checkpoint_path)
+    saver1 = AsyncSqliteSaver(connection1)
+    await saver1.setup()
+    first = LangGraphExecutionAgent(repository, dataset, checkpointer=saver1)
+    task = await first.create_task("下架商品 P003", "workspace-1", "operator")
+    snapshot1 = await first.graph.aget_state({"configurable": {"thread_id": task.id}})
+    assert snapshot1.next == ("approval_gate",)
+    await connection1.close()
+
+    connection2 = await aiosqlite.connect(checkpoint_path)
+    saver2 = AsyncSqliteSaver(connection2)
+    second = LangGraphExecutionAgent(repository, dataset, checkpointer=saver2)
+    snapshot2 = await second.graph.aget_state({"configurable": {"thread_id": task.id}})
+    assert snapshot2.next == ("approval_gate",)
+    completed = await second.approve_and_run(task.id, "workspace-1", "operator", task.version)
+    assert completed.status == "completed"
+    await connection2.close()
     await repository.dispose()

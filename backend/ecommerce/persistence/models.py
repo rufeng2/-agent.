@@ -196,3 +196,18 @@ class ExecutionTaskModel(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+
+
+class MarketingCampaignModel(Base):
+    __tablename__ = "ecommerce_marketing_campaigns"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(String(128), index=True)
+    task_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    product_id: Mapped[str] = mapped_column(String(36), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    daily_budget: Mapped[float] = mapped_column(Float)
+    target_acos_pct: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)

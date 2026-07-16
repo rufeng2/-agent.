@@ -6,6 +6,8 @@ from mcp.server.fastmcp import FastMCP
 from backend.config import settings
 from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.persistence.repository import EcommerceRepository
+from backend.ecommerce.persistence.repository import VersionConflict
+from backend.ecommerce.tool_response import ToolResponse
 
 
 mcp = FastMCP(
@@ -69,65 +71,117 @@ async def _require_approval(approved_task_id: str, action_type: str, product_id:
 @mcp.tool()
 async def get_product(product_id: str) -> dict:
     """Get the current product, price, listing status and optimistic-lock version."""
-    return await _product_snapshot(product_id)
+    try:
+        return ToolResponse.success(await _product_snapshot(product_id), tool="get_product").model_dump(mode="json")
+    except ValueError as exc:
+        return ToolResponse.error("NOT_FOUND", str(exc)).model_dump(mode="json")
 
 
 @mcp.tool()
 async def update_product_price(product_id: str, new_price: float, expected_version: int, approved_task_id: str) -> dict:
     """Update a product price after approval and return before/after snapshots."""
-    identity = await _require_approval(approved_task_id, "price_update", product_id, {"new_price": new_price})
-    before = await _product_snapshot(product_id)
-    if new_price <= float(before["cost"]):
-        raise ValueError("new price must remain above cost")
-    repository = EcommerceRepository(_database_url())
-    await repository.initialize()
     try:
-        await repository.apply_catalog_action(product_id, price_override=new_price, expected_version=expected_version)
-    finally:
-        await repository.dispose()
-    return {"before": before, "after": await _product_snapshot(product_id), "approved_task_id": approved_task_id, **identity}
+        identity = await _require_approval(approved_task_id, "price_update", product_id, {"new_price": new_price})
+        before = await _product_snapshot(product_id)
+        if new_price <= float(before["cost"]):
+            raise ValueError("new price must remain above cost")
+        repository = EcommerceRepository(_database_url())
+        await repository.initialize()
+        try:
+            await repository.apply_catalog_action(product_id, price_override=new_price, expected_version=expected_version)
+        finally:
+            await repository.dispose()
+        data = {"before": before, "after": await _product_snapshot(product_id), "approved_task_id": approved_task_id, **identity}
+        return ToolResponse.success(data, tool="update_product_price").model_dump(mode="json")
+    except PermissionError as exc:
+        return ToolResponse.error("APPROVAL_DENIED", str(exc)).model_dump(mode="json")
+    except VersionConflict as exc:
+        return ToolResponse.error("VERSION_CONFLICT", str(exc), retryable=True).model_dump(mode="json")
+    except ValueError as exc:
+        return ToolResponse.error("INVALID_PARAM", str(exc)).model_dump(mode="json")
 
 
 @mcp.tool()
 async def set_product_listing(product_id: str, listing_status: str, expected_version: int, approved_task_id: str) -> dict:
     """Publish or unpublish a product after approval."""
-    action_type = "product_publish" if listing_status == "listed" else "product_unpublish"
-    identity = await _require_approval(approved_task_id, action_type, product_id, {"listing_status": listing_status})
-    if listing_status not in {"listed", "unlisted"}:
-        raise ValueError("listing_status must be listed or unlisted")
-    before = await _product_snapshot(product_id)
-    repository = EcommerceRepository(_database_url())
-    await repository.initialize()
     try:
-        await repository.apply_catalog_action(product_id, listing_status=listing_status, expected_version=expected_version)
-    finally:
-        await repository.dispose()
-    return {"before": before, "after": await _product_snapshot(product_id), "approved_task_id": approved_task_id, **identity}
+        action_type = "product_publish" if listing_status == "listed" else "product_unpublish"
+        identity = await _require_approval(approved_task_id, action_type, product_id, {"listing_status": listing_status})
+        if listing_status not in {"listed", "unlisted"}:
+            raise ValueError("listing_status must be listed or unlisted")
+        before = await _product_snapshot(product_id)
+        repository = EcommerceRepository(_database_url())
+        await repository.initialize()
+        try:
+            await repository.apply_catalog_action(product_id, listing_status=listing_status, expected_version=expected_version)
+        finally:
+            await repository.dispose()
+        data = {"before": before, "after": await _product_snapshot(product_id), "approved_task_id": approved_task_id, **identity}
+        return ToolResponse.success(data, tool="set_product_listing").model_dump(mode="json")
+    except PermissionError as exc:
+        return ToolResponse.error("APPROVAL_DENIED", str(exc)).model_dump(mode="json")
+    except VersionConflict as exc:
+        return ToolResponse.error("VERSION_CONFLICT", str(exc), retryable=True).model_dump(mode="json")
+    except ValueError as exc:
+        return ToolResponse.error("INVALID_PARAM", str(exc)).model_dump(mode="json")
 
 
 @mcp.tool()
 async def rollback_product(product_id: str, price: float | None, listing_status: str | None, expected_version: int, approved_task_id: str) -> dict:
     """Restore a prior catalog snapshot after an approved rollback."""
-    identity = await _require_approval(approved_task_id, "rollback", product_id, {})
-    before = await _product_snapshot(product_id)
-    repository = EcommerceRepository(_database_url())
-    await repository.initialize()
     try:
-        await repository.apply_catalog_action(product_id, price_override=price, listing_status=listing_status, expected_version=expected_version)
-    finally:
-        await repository.dispose()
-    return {"before": before, "after": await _product_snapshot(product_id), "approved_task_id": approved_task_id, **identity}
+        identity = await _require_approval(approved_task_id, "rollback", product_id, {})
+        before = await _product_snapshot(product_id)
+        repository = EcommerceRepository(_database_url())
+        await repository.initialize()
+        try:
+            await repository.apply_catalog_action(product_id, price_override=price, listing_status=listing_status, expected_version=expected_version)
+        finally:
+            await repository.dispose()
+        data = {"before": before, "after": await _product_snapshot(product_id), "approved_task_id": approved_task_id, **identity}
+        return ToolResponse.success(data, tool="rollback_product").model_dump(mode="json")
+    except PermissionError as exc:
+        return ToolResponse.error("APPROVAL_DENIED", str(exc)).model_dump(mode="json")
+    except VersionConflict as exc:
+        return ToolResponse.error("VERSION_CONFLICT", str(exc), retryable=True).model_dump(mode="json")
+    except ValueError as exc:
+        return ToolResponse.error("INVALID_PARAM", str(exc)).model_dump(mode="json")
 
 
 @mcp.tool()
 async def create_marketing_campaign(product_id: str, name: str, daily_budget: float, target_acos_pct: float, approved_task_id: str) -> dict:
     """Create an approved sandbox marketing campaign receipt."""
-    identity = await _require_approval(approved_task_id, "marketing_plan", product_id, {"campaign": {"name": name, "daily_budget": daily_budget, "target_acos_pct": target_acos_pct}})
-    await _product_snapshot(product_id)
-    if daily_budget <= 0 or target_acos_pct <= 0:
-        raise ValueError("budget and target ACOS must be positive")
-    campaign_id = str(uuid5(NAMESPACE_URL, f"mcp-campaign:{approved_task_id}:{product_id}:{name}"))
-    return {"campaign_id": campaign_id, "product_id": product_id, "name": name, "daily_budget": daily_budget, "target_acos_pct": target_acos_pct, "status": "active", "environment": "sandbox", "approved_task_id": approved_task_id, **identity}
+    try:
+        identity = await _require_approval(approved_task_id, "marketing_plan", product_id, {"campaign": {"name": name, "daily_budget": daily_budget, "target_acos_pct": target_acos_pct}})
+        await _product_snapshot(product_id)
+        if daily_budget <= 0 or target_acos_pct <= 0:
+            raise ValueError("budget and target ACOS must be positive")
+        repository = EcommerceRepository(_database_url())
+        await repository.initialize()
+        try:
+            campaign = await repository.create_campaign(identity["workspace_id"], approved_task_id, product_id, name, daily_budget, target_acos_pct)
+        finally:
+            await repository.dispose()
+        data = {"campaign_id": campaign.id, "product_id": product_id, "name": name, "daily_budget": daily_budget, "target_acos_pct": target_acos_pct, "status": campaign.status, "version": campaign.version, "environment": "sandbox", "approved_task_id": approved_task_id, **identity}
+        return ToolResponse.success(data, tool="create_marketing_campaign").model_dump(mode="json")
+    except PermissionError as exc:
+        return ToolResponse.error("APPROVAL_DENIED", str(exc)).model_dump(mode="json")
+    except ValueError as exc:
+        return ToolResponse.error("INVALID_PARAM", str(exc)).model_dump(mode="json")
+
+
+@mcp.tool()
+async def get_marketing_campaign(campaign_id: str, workspace_id: str) -> dict:
+    """Read a persisted marketing campaign."""
+    repository = EcommerceRepository(_database_url())
+    await repository.initialize()
+    try:
+        campaign = await repository.get_campaign(campaign_id, workspace_id)
+    finally:
+        await repository.dispose()
+    if campaign is None:
+        return ToolResponse.error("NOT_FOUND", "campaign not found").model_dump(mode="json")
+    return ToolResponse.success({"campaign_id": campaign.id, "product_id": campaign.product_id, "name": campaign.name, "daily_budget": campaign.daily_budget, "target_acos_pct": campaign.target_acos_pct, "status": campaign.status, "version": campaign.version}).model_dump(mode="json")
 
 
 if __name__ == "__main__":

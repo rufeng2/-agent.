@@ -11,6 +11,7 @@ from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from backend.ecommerce.tool_response import MCPToolError, ToolResponse, ToolStatus
 
 
 class EcommerceMCPClient:
@@ -88,12 +89,24 @@ class EcommerceMCPClient:
                 self.total_latency_ms += (time.perf_counter() - started) * 1000
         if result.isError:
             message = " ".join(getattr(item, "text", "") for item in result.content).strip()
-            raise RuntimeError(message or f"MCP tool {name} failed")
+            self._record_failure()
+            raise MCPToolError(ToolResponse.error("MCP_PROTOCOL_ERROR", message or f"MCP tool {name} failed", retryable=True))
         if result.structuredContent:
             payload = result.structuredContent
-            return payload.get("result", payload) if isinstance(payload, dict) else payload
-        text = next((getattr(item, "text", "") for item in result.content if getattr(item, "text", "")), "{}")
-        return json.loads(text)
+            raw = payload.get("result", payload) if isinstance(payload, dict) else payload
+        else:
+            text = next((getattr(item, "text", "") for item in result.content if getattr(item, "text", "")), "{}")
+            raw = json.loads(text)
+        response = ToolResponse.model_validate(raw)
+        if response.status == ToolStatus.ERROR:
+            self._record_failure()
+            raise MCPToolError(response)
+        return response.data
+
+    def _record_failure(self) -> None:
+        self._failures += 1
+        if self._failures >= 3:
+            self._circuit_open_until = time.monotonic() + 30
 
     def health(self) -> dict[str, Any]:
         return {"persistent": self.persistent, "connected": self._session is not None, "calls": self.calls, "average_latency_ms": round(self.total_latency_ms / self.calls, 2) if self.calls else 0, "failures": self._failures, "circuit_open": time.monotonic() < self._circuit_open_until}
