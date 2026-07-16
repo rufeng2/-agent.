@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     LOG_LEVEL: str = "INFO"
 
-    DATABASE_URL: str = "postgresql+asyncpg://ragadmin:change_me_plz@localhost:5432/knowledge_rag"
+    DATABASE_URL: str = "postgresql+asyncpg://ecommerce_admin:change_me_plz@localhost:5432/ecommerce_ops"
     ECOMMERCE_DATABASE_URL: str = "sqlite+aiosqlite:///./data/ecommerce_agent.db"
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
-    MINIO_BUCKET: str = "knowledge-rag"
+    MINIO_BUCKET: str = "ecommerce-agent"
     MINIO_SECURE: bool = False
     USE_MINIO: bool = False
 

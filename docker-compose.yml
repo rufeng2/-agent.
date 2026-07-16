@@ -2,19 +2,19 @@ services:
   # ==================== PostgreSQL + pgvector ====================
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: rag-postgres
+    container_name: ecommerce-agent-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ragadmin}
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_plz}
-      POSTGRES_DB: ${POSTGRES_DB:-knowledge_rag}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce_ops}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ragadmin -d knowledge_rag"]
+      test: ["CMD-SHELL", "pg_isready -U ecommerce_admin -d ecommerce_ops"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,7 +22,7 @@ services:
   # ==================== Redis ====================
   redis:
     image: redis:7-alpine
-    container_name: rag-redis
+    container_name: ecommerce-agent-redis
     restart: unless-stopped
     # ports:
     #   - "6379:6379"  # 被本机 Docker 占用，内部通信不需要暴露
@@ -37,7 +37,7 @@ services:
   # ==================== MinIO 对象存储 ====================
   minio:
     image: minio/minio:latest
-    container_name: rag-minio
+    container_name: ecommerce-agent-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -57,7 +57,7 @@ services:
   # ==================== RabbitMQ ====================
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: rag-rabbitmq
+    container_name: ecommerce-agent-rabbitmq
     restart: unless-stopped
     ports:
       - "5672:5672"   # AMQP
@@ -75,14 +75,15 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: rag-backend
+    container_name: ecommerce-agent-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ragadmin}:${POSTGRES_PASSWORD:-change_me_plz}@postgres:5432/${POSTGRES_DB:-knowledge_rag}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ecommerce_admin}:${POSTGRES_PASSWORD:-change_me_plz}@postgres:5432/${POSTGRES_DB:-ecommerce_ops}
+      - ECOMMERCE_DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ecommerce_admin}:${POSTGRES_PASSWORD:-change_me_plz}@postgres:5432/${POSTGRES_DB:-ecommerce_ops}
       - REDIS_URL=redis://redis:6379/0
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672//
       - MINIO_ENDPOINT=minio:9000
@@ -103,12 +104,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: rag-celery
+    container_name: ecommerce-agent-celery
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ragadmin}:${POSTGRES_PASSWORD:-change_me_plz}@postgres:5432/${POSTGRES_DB:-knowledge_rag}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ecommerce_admin}:${POSTGRES_PASSWORD:-change_me_plz}@postgres:5432/${POSTGRES_DB:-ecommerce_ops}
       - REDIS_URL=redis://redis:6379/0
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672//
       - MINIO_ENDPOINT=minio:9000
@@ -129,7 +130,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: rag-celery-beat
+    container_name: ecommerce-agent-celery-beat
     restart: unless-stopped
     env_file:
       - .env
@@ -142,7 +143,7 @@ services:
   # ==================== Nginx 反向代理 ====================
   nginx:
     image: nginx:alpine
-    container_name: rag-nginx
+    container_name: ecommerce-agent-nginx
     restart: unless-stopped
     ports:
       - "8080:80"        # 80/443 被 Steam++ 占用，改用 8080

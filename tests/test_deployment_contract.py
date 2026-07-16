@@ -45,3 +45,14 @@ def test_runtime_dependencies_do_not_include_known_vulnerable_jose_or_pdf_packag
     assert "pypdf2" not in requirements
     assert "pyjwt[crypto]" in requirements
     assert "pypdf>=" in requirements
+
+
+def test_primary_compose_and_environment_use_ecommerce_names():
+    compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    env = (ROOT / ".env.example").read_text(encoding="utf-8")
+    production = (ROOT / "docker-compose.production.yml").read_text(encoding="utf-8")
+
+    assert "ecommerce_ops" in compose_text + env
+    assert "ecommerce-agent-backend" in compose_text + production
+    assert "container_name: rag-" not in compose_text
+    assert "ECOMMERCE_DATABASE_URL" in env
