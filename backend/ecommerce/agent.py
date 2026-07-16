@@ -74,7 +74,8 @@ class EcommerceAgent:
         )
 
     def _campaign(self, question: str) -> AgentAnalysis:
-        plan, plan_trace = self.tools.generate_campaign_plan()
+        goal = _campaign_goal(question)
+        plan, plan_trace = self.tools.generate_campaign_plan(goal)
         products, product_trace = self.tools.rank_products()
         evidence = [
             Evidence(label="主推商品数", value=str(len(plan["hero_products"])), rule="segment in hero/profit"),
@@ -109,7 +110,6 @@ class EcommerceAgent:
             risk_level="high",
             confidence=0.8,
         )
-
     def _inventory(self, question: str) -> AgentAnalysis:
         anomalies, anomaly_trace = self.tools.detect_anomalies()
         stock_evidence = [item for anomaly in anomalies if anomaly.metric == "inventory" for item in anomaly.evidence]
@@ -125,3 +125,16 @@ class EcommerceAgent:
             risk_level="medium",
             confidence=0.78,
         )
+
+
+def _campaign_goal(question: str) -> str:
+    for goal in ("新品冷启动", "清仓库存", "会员复购", "大促增长"):
+        if goal in question:
+            return goal
+    if "新品" in question or "上新" in question:
+        return "新品冷启动"
+    if "清仓" in question or "尾货" in question:
+        return "清仓库存"
+    if "会员" in question or "复购" in question or "老客" in question:
+        return "会员复购"
+    return "大促增长"

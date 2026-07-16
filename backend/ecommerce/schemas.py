@@ -288,3 +288,6 @@ class AgentAnalysis(BaseModel):
     recommendations: list[RecommendedAction]
     risk_level: str
     confidence: float
+    run_id: str = ""
+    execution_mode: str = "deterministic"
+    fallback_reason: str = ""
