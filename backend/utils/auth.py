@@ -27,11 +27,12 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ====================== JWT ======================
 
-def create_access_token(username: str, role: str = "user", must_change_password: bool = False) -> str:
+def create_access_token(username: str, role: str = "user", must_change_password: bool = False, workspace_id: str = "") -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": username,
         "role": role,
+        "workspace_id": workspace_id or f"workspace:{username}",
         "must_change_password": must_change_password,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
@@ -59,7 +60,12 @@ async def get_current_user(
         role: str = payload.get("role", "user")
         if username is None:
             raise HTTPException(status_code=401, detail="无效的令牌")
-        return {"username": username, "role": role, "must_change_password": bool(payload.get("must_change_password", False))}
+        return {
+            "username": username,
+            "role": role,
+            "workspace_id": payload.get("workspace_id") or f"workspace:{username}",
+            "must_change_password": bool(payload.get("must_change_password", False)),
+        }
     except InvalidTokenError:
         raise HTTPException(status_code=401, detail="无效的令牌")
 

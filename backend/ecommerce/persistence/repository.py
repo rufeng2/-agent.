@@ -322,6 +322,10 @@ class EcommerceRepository:
         async with self.database.sessions() as session:
             return (await session.execute(select(ExecutionTaskModel).where(ExecutionTaskModel.id == task_id, ExecutionTaskModel.workspace_id == workspace_id))).scalar_one_or_none()
 
+    async def get_execution_task_by_id(self, task_id: str) -> ExecutionTaskModel | None:
+        async with self.database.sessions() as session:
+            return await session.get(ExecutionTaskModel, task_id)
+
     async def list_execution_tasks(self, workspace_id: str, limit: int = 30) -> list[ExecutionTaskModel]:
         async with self.database.sessions() as session:
             statement = select(ExecutionTaskModel).where(ExecutionTaskModel.workspace_id == workspace_id).order_by(ExecutionTaskModel.updated_at.desc()).limit(limit)

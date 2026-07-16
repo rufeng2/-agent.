@@ -1,6 +1,7 @@
 import pytest
 
 from backend.ecommerce.mcp_client import EcommerceMCPClient
+from backend.ecommerce.persistence.repository import EcommerceRepository
 
 
 @pytest.mark.asyncio
@@ -37,3 +38,20 @@ async def test_persistent_mcp_client_reuses_initialized_session(tmp_path):
         assert health["circuit_open"] is False
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_rejects_parameters_not_in_approval_snapshot(tmp_path):
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'mcp.db'}"
+    repository = EcommerceRepository(database_url)
+    await repository.initialize()
+    task = await repository.create_execution_task("workspace-a", "alice", "把轻量跑步鞋价格调整到269元")
+    await repository.update_execution_task(task.id, "workspace-a", status="running", state={
+        "approved": True,
+        "approval": {"operator": "alice", "action_type": "price_update", "product_id": "P002", "parameters": {"new_price": 269.0}},
+    })
+    client = EcommerceMCPClient(database_url)
+
+    with pytest.raises(RuntimeError, match="does not match"):
+        await client.call_tool("update_product_price", {"product_id": "P002", "new_price": 280.0, "expected_version": 1, "approved_task_id": task.id})
+    await repository.dispose()

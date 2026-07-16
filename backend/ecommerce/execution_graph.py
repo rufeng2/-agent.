@@ -87,7 +87,21 @@ class LangGraphExecutionAgent:
             raise VersionConflict(f"Task is {task.status}, not waiting_approval")
         if task.version != expected_version:
             raise VersionConflict(f"Expected version {expected_version}, found {task.version}")
-        await self.repository.update_execution_task(task_id, workspace_id, status="running", expected_version=expected_version)
+        approved_state = {
+            **task.state,
+            "approved": True,
+            "approval": {
+                "operator": operator,
+                "approved_at": datetime.now(timezone.utc).isoformat(),
+                "action_type": task.state.get("action_type"),
+                "product_id": task.state.get("product_id"),
+                "parameters": task.state.get("parameters", {}),
+            },
+        }
+        await self.repository.update_execution_task(
+            task_id, workspace_id, status="running", state=approved_state,
+            expected_version=expected_version,
+        )
         config = {"configurable": {"thread_id": task_id}}
         try:
             snapshot = await self.graph.aget_state(config)
@@ -110,6 +124,21 @@ class LangGraphExecutionAgent:
             raise KeyError(task_id)
         if task.status != "completed" or task.version != expected_version:
             raise VersionConflict("Only the current completed task can be rolled back")
+        rollback_state = {
+            **task.state,
+            "approved": True,
+            "approval": {
+                "operator": operator,
+                "approved_at": datetime.now(timezone.utc).isoformat(),
+                "action_type": "rollback",
+                "product_id": task.result.get("before", {}).get("product_id"),
+                "parameters": {},
+            },
+        }
+        prepared = await self.repository.update_execution_task(
+            task_id, workspace_id, status="rolling_back", state=rollback_state,
+            expected_version=expected_version,
+        )
         action_type, before = task.result.get("action_type"), task.result.get("before", {})
         if action_type == "price_update":
             response = await self.mcp.call_tool("rollback_product", {"product_id": before["product_id"], "price": float(before["price"]), "listing_status": None, "expected_version": int(task.result["after"]["catalog_version"]), "approved_task_id": task_id})
@@ -120,7 +149,7 @@ class LangGraphExecutionAgent:
         else:
             raise ExecutionPlanningError("营销活动演示回执不支持回滚")
         events = [*task.events, _event("Tool Executor", "mcp_rollback_completed", f"{operator} 通过 MCP 将业务状态恢复到执行前")]
-        return await self.repository.update_execution_task(task_id, workspace_id, status="rolled_back", events=events, result={**task.result, "rollback": rollback_result}, expected_version=expected_version)
+        return await self.repository.update_execution_task(task_id, workspace_id, status="rolled_back", events=events, result={**task.result, "rollback": rollback_result}, expected_version=prepared.version)
 
     async def _current_state(self, task_id: str, output: dict) -> dict:
         snapshot = await self.graph.aget_state({"configurable": {"thread_id": task_id}})

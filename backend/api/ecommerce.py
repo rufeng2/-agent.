@@ -1,6 +1,6 @@
 """Execution-first ecommerce API."""
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.config import settings
@@ -15,6 +15,7 @@ from backend.ecommerce.persistence.repository import EcommerceRepository, Versio
 from backend.ecommerce.segmentation import build_product_analysis
 from backend.ecommerce.simulation import SimulationEngine
 from backend.schemas.common import ApiResponse
+from backend.utils.auth import get_current_user
 
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-execution-agent"])
@@ -22,6 +23,15 @@ _loader = EcommerceDataLoader()
 _repository = EcommerceRepository(settings.ECOMMERCE_DATABASE_URL)
 _repository_ready = False
 _execution_agent: LangGraphExecutionAgent | None = None
+
+
+def _identity(user: dict) -> tuple[str, str]:
+    return user["workspace_id"], user["username"]
+
+
+def _require_operator(user: dict) -> None:
+    if user.get("role") == "viewer":
+        raise HTTPException(status_code=403, detail="只读用户不能执行运营变更")
 
 
 class ExecutionTaskRequest(BaseModel):
@@ -92,12 +102,12 @@ def _task_data(item) -> dict:
 
 
 @router.get("/dashboard", response_model=ApiResponse)
-async def dashboard():
+async def dashboard(_user: dict = Depends(get_current_user)):
     return ApiResponse(data=build_dashboard(await _dataset()).model_dump())
 
 
 @router.get("/mcp/status", response_model=ApiResponse)
-async def mcp_status():
+async def mcp_status(_user: dict = Depends(get_current_user)):
     runtime = await _execution_runtime()
     try:
         tools = await runtime.mcp.list_tools()
@@ -113,38 +123,44 @@ async def mcp_status():
 
 
 @router.post("/execution/tasks", response_model=ApiResponse, status_code=201)
-async def create_execution_task(request: ExecutionTaskRequest):
+async def create_execution_task(request: ExecutionTaskRequest, user: dict = Depends(get_current_user)):
     goal = request.goal.strip()
     if not goal:
         raise HTTPException(status_code=400, detail="执行目标不能为空")
+    _require_operator(user)
+    workspace_id, operator = _identity(user)
     try:
-        item = await (await _execution_runtime()).create_task(goal, "workspace-demo", "demo-user")
+        item = await (await _execution_runtime()).create_task(goal, workspace_id, operator)
     except ExecutionPlanningError as exc:
         raise HTTPException(status_code=400, detail=str(exc).split("\nDuring task")[0]) from exc
     return ApiResponse(data=_task_data(item))
 
 
 @router.get("/execution/tasks", response_model=ApiResponse)
-async def execution_tasks():
+async def execution_tasks(user: dict = Depends(get_current_user)):
     await _ensure_repository()
-    items = await _repository.list_execution_tasks("workspace-demo")
+    workspace_id, _operator = _identity(user)
+    items = await _repository.list_execution_tasks(workspace_id)
     return ApiResponse(data=[_task_data(item) for item in items])
 
 
 @router.get("/execution/tasks/{task_id}", response_model=ApiResponse)
-async def execution_task_detail(task_id: str):
+async def execution_task_detail(task_id: str, user: dict = Depends(get_current_user)):
     await _ensure_repository()
-    item = await _repository.get_execution_task(task_id, "workspace-demo")
+    workspace_id, _operator = _identity(user)
+    item = await _repository.get_execution_task(task_id, workspace_id)
     if item is None:
         raise HTTPException(status_code=404, detail="执行任务不存在")
     return ApiResponse(data=_task_data(item))
 
 
 @router.post("/execution/tasks/{task_id}/approve", response_model=ApiResponse)
-async def approve_execution_task(task_id: str, request: ExecutionApprovalRequest):
+async def approve_execution_task(task_id: str, request: ExecutionApprovalRequest, user: dict = Depends(get_current_user)):
+    _require_operator(user)
+    workspace_id, operator = _identity(user)
     try:
         item = await (await _execution_runtime()).approve_and_run(
-            task_id, "workspace-demo", "demo-user", request.expected_version,
+            task_id, workspace_id, operator, request.expected_version,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="执行任务不存在") from exc
@@ -156,10 +172,12 @@ async def approve_execution_task(task_id: str, request: ExecutionApprovalRequest
 
 
 @router.post("/execution/tasks/{task_id}/rollback", response_model=ApiResponse)
-async def rollback_execution_task(task_id: str, request: ExecutionApprovalRequest):
+async def rollback_execution_task(task_id: str, request: ExecutionApprovalRequest, user: dict = Depends(get_current_user)):
+    _require_operator(user)
+    workspace_id, operator = _identity(user)
     try:
         item = await (await _execution_runtime()).rollback(
-            task_id, "workspace-demo", "demo-user", request.expected_version,
+            task_id, workspace_id, operator, request.expected_version,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="执行任务不存在") from exc
@@ -171,7 +189,7 @@ async def rollback_execution_task(task_id: str, request: ExecutionApprovalReques
 
 
 @router.get("/products", response_model=ApiResponse)
-async def products():
+async def products(_user: dict = Depends(get_current_user)):
     simulation = await _simulation_result()
     dataset = simulation.dataset
     competitors = {item.product_id: item for item in analyze_competitor_prices(dataset)}
@@ -198,17 +216,17 @@ async def products():
 
 
 @router.get("/analytics/funnel", response_model=ApiResponse)
-async def funnel_analysis():
+async def funnel_analysis(_user: dict = Depends(get_current_user)):
     return ApiResponse(data=analyze_funnel(await _dataset()).model_dump())
 
 
 @router.get("/analytics/forecast", response_model=ApiResponse)
-async def gmv_forecast():
+async def gmv_forecast(_user: dict = Depends(get_current_user)):
     return ApiResponse(data=forecast_gmv(await _dataset(), horizon=7).model_dump())
 
 
 @router.get("/simulation/state", response_model=ApiResponse)
-async def simulation_state():
+async def simulation_state(_user: dict = Depends(get_current_user)):
     result = await _simulation_result()
     data = result.state.model_dump(mode="json")
     data["deltas"] = result.deltas
@@ -216,7 +234,8 @@ async def simulation_state():
 
 
 @router.post("/simulation/advance", response_model=ApiResponse)
-async def simulation_advance(request: SimulationTransitionRequest):
+async def simulation_advance(request: SimulationTransitionRequest, user: dict = Depends(get_current_user)):
+    _require_operator(user)
     await _ensure_repository()
     baseline = _loader.load_cached()
     baseline_date = max(row.date for row in baseline.orders)
@@ -233,7 +252,8 @@ async def simulation_advance(request: SimulationTransitionRequest):
 
 
 @router.post("/simulation/reset", response_model=ApiResponse)
-async def simulation_reset(request: SimulationTransitionRequest):
+async def simulation_reset(request: SimulationTransitionRequest, user: dict = Depends(get_current_user)):
+    _require_operator(user)
     await _ensure_repository()
     baseline = _loader.load_cached()
     baseline_date = max(row.date for row in baseline.orders)
