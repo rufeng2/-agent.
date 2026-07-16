@@ -79,3 +79,30 @@ def test_public_copy_has_no_mojibake_markers():
     offenders = {path: markers for path, markers in offenders.items() if markers}
 
     assert offenders == {}
+
+
+def test_enterprise_agent_routes_and_workflows_are_exposed():
+    router = read("frontend/src/router/index.ts")
+    app = read("frontend/src/App.vue")
+    client = read("frontend/src/api/client.ts")
+    pages = "\n".join(read(path) for path in [
+        "frontend/src/views/Ecommerce/AgentWorkspace.vue",
+        "frontend/src/views/Ecommerce/Customers.vue",
+        "frontend/src/views/Ecommerce/Runs.vue",
+        "frontend/src/views/Ecommerce/AgentEvaluation.vue",
+        "frontend/src/views/Ecommerce/Recommendations.vue",
+        "frontend/src/views/Ecommerce/Campaigns.vue",
+    ])
+
+    assert 'path: "/customers"' in router
+    assert 'path: "/runs"' in router
+    assert 'path: "/agent-evaluation"' in router
+    assert "客户分析" in app
+    assert "运行中心" in app
+    assert "sessions:" in client
+    assert "sessionDetail:" in client
+    assert "runSummary:" in client
+    assert "execution_mode" in pages
+    assert "模拟测算" in pages
+    assert "审批审计" in pages
+    assert "RFM" in pages

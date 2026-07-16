@@ -28,6 +28,9 @@
         <el-table-column prop="inventory_turnover_days" label="周转天数" width="110" />
         <el-table-column prop="ad_roi" label="广告 ROI" width="110" />
         <el-table-column prop="average_rating" label="评分" width="90" />
+        <el-table-column prop="competitor_price" label="竞品价" width="100" />
+        <el-table-column prop="price_gap" label="价差" width="90" />
+        <el-table-column prop="price_index" label="价格指数" width="100" />
         <el-table-column label="风险标签" min-width="160">
           <template #default="{ row }">
             <el-tag v-for="tag in row.risk_tags" :key="tag" type="danger" style="margin-right:6px">{{ tag }}</el-tag>

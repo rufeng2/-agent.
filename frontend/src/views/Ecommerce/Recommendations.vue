@@ -37,25 +37,29 @@
         <el-table-column prop="reason" label="触发原因" min-width="220" />
         <el-table-column prop="expected_impact" label="预期影响" min-width="180" />
         <el-table-column prop="status" label="状态" width="100" />
+        <el-table-column prop="version" label="版本" width="70" />
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.status === 'pending'" size="small" type="primary" @click="approve(row.id)">通过</el-button>
-            <el-button v-if="row.status === 'pending'" size="small" @click="reject(row.id)">拒绝</el-button>
+            <el-button v-if="row.status === 'pending'" size="small" type="primary" @click="transition(row, 'approve')">通过</el-button>
+            <el-button v-if="row.status === 'pending'" size="small" @click="transition(row, 'reject')">拒绝</el-button>
+            <el-button size="small" text @click="showAudit(row.id)">审计</el-button>
           </template>
         </el-table-column>
       </el-table>
     </div>
+    <el-drawer v-model="auditVisible" title="审批审计" size="480px"><el-empty v-if="!audit.length" description="暂无审批记录"/><el-timeline><el-timeline-item v-for="item in audit" :key="item.created_at" :timestamp="item.created_at"><strong>{{ item.from_status }} → {{ item.to_status }}</strong><p>{{ item.operator }}：{{ item.comment || '无审批意见' }}</p></el-timeline-item></el-timeline></el-drawer>
   </section>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue"
-import { ElMessage } from "element-plus"
+import { ElMessage, ElMessageBox } from "element-plus"
 import { ecommerceAPI } from "@/api/client"
 
 const status = ref("")
 const loading = ref(false)
 const items = ref<any[]>([])
+const auditVisible=ref(false), audit=ref<any[]>([])
 
 async function load() {
   loading.value = true
@@ -68,17 +72,8 @@ async function load() {
   }
 }
 
-async function approve(id: string) {
-  await ecommerceAPI.approveRecommendation(id)
-  ElMessage.success("建议已通过")
-  await load()
-}
-
-async function reject(id: string) {
-  await ecommerceAPI.rejectRecommendation(id)
-  ElMessage.success("建议已拒绝")
-  await load()
-}
+async function transition(row:any, action:"approve"|"reject") { const {value}=await ElMessageBox.prompt("请输入审批意见","审批确认",{inputPlaceholder:"说明通过或拒绝原因"}); if(action==="approve") await ecommerceAPI.approveRecommendation(row.id,row.version,value); else await ecommerceAPI.rejectRecommendation(row.id,row.version,value); ElMessage.success(action==="approve"?"建议已通过":"建议已拒绝"); await load() }
+async function showAudit(id:string){const data=(await ecommerceAPI.recommendationDetail(id)).data.data;audit.value=data.approvals;auditVisible.value=true}
 
 onMounted(load)
 </script>

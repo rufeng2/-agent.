@@ -8,6 +8,15 @@
     </div>
 
     <div class="panel agent-layout">
+      <div class="session-bar">
+        <el-select v-model="sessionId" clearable placeholder="新会话" @change="selectSession">
+          <el-option v-for="item in sessions" :key="item.id" :label="item.title" :value="item.id" />
+        </el-select>
+        <el-button @click="newSession">新建会话</el-button>
+      </div>
+      <div v-if="messages.length" class="message-history">
+        <p v-for="item in messages" :key="item.id" :class="item.role"><strong>{{ item.role === 'user' ? '我' : 'Agent' }}</strong>{{ item.content }}</p>
+      </div>
       <div class="question-bar">
         <el-input v-model="question" size="large" placeholder="例如：昨天 GMV 为什么下降？" @keyup.enter="analyze" />
         <el-button type="primary" size="large" :loading="loading" @click="analyze">分析</el-button>
@@ -19,6 +28,7 @@
       <el-empty v-if="!analysis" description="选择一个问题开始分析" />
       <template v-else>
         <h2>{{ analysis.summary }}</h2>
+        <div class="mode-row"><el-tag :type="analysis.execution_mode === 'llm' ? 'success' : 'warning'">{{ analysis.execution_mode }}</el-tag><span v-if="analysis.fallback_reason">{{ analysis.fallback_reason }}</span></div>
         <el-descriptions :column="3" border>
           <el-descriptions-item label="意图">{{ analysis.intent }}</el-descriptions-item>
           <el-descriptions-item label="风险">{{ analysis.risk_level }}</el-descriptions-item>
@@ -58,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
+import { onMounted, ref } from "vue"
 import { ElMessage } from "element-plus"
 import { ecommerceAPI } from "@/api/client"
 
@@ -66,20 +76,30 @@ const prompts = ["昨天 GMV 为什么下降？", "哪些商品适合参加大�
 const question = ref(prompts[0])
 const loading = ref(false)
 const analysis = ref<any>(null)
+const sessionId = ref("")
+const sessions = ref<any[]>([])
+const messages = ref<any[]>([])
+
+async function loadSessions() { sessions.value = (await ecommerceAPI.sessions()).data.data }
+async function selectSession() { if (!sessionId.value) return; const data=(await ecommerceAPI.sessionDetail(sessionId.value)).data.data; messages.value=data.messages }
+function newSession(){ sessionId.value=""; messages.value=[]; analysis.value=null }
 
 async function analyze() {
   if (!question.value.trim()) return
   loading.value = true
   try {
-    analysis.value = (await ecommerceAPI.analyze(question.value)).data.data
+    analysis.value = (await ecommerceAPI.analyze(question.value, sessionId.value)).data.data
+    sessionId.value = analysis.value.session_id
+    await Promise.all([loadSessions(), selectSession()])
   } catch {
     ElMessage.error("Agent 分析失败")
   } finally {
     loading.value = false
   }
 }
+onMounted(loadSessions)
 </script>
 
 <style scoped>
-.agent-layout{padding:18px}.question-bar{display:grid;grid-template-columns:1fr auto;gap:10px}.quick-prompts{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 18px}.agent-layout h2{font-size:18px;line-height:1.5}.agent-layout h3{margin:22px 0 10px;font-size:15px}.trace-list{display:grid;gap:10px}.trace-step{display:grid;grid-template-columns:32px 1fr;gap:12px;border:1px solid var(--border);border-radius:6px;padding:12px;background:#fff}.trace-step>span{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#2563eb;color:#fff;font-weight:700}.trace-step strong,.trace-step small,.trace-step code{display:block}.trace-step small{margin-top:2px;color:var(--ink-muted)}.trace-step p{margin:8px 0;color:var(--ink);line-height:1.5}.trace-step code{white-space:normal;word-break:break-word;color:var(--ink-muted);font-size:12px}
+.agent-layout{padding:18px}.session-bar{display:flex;gap:8px;margin-bottom:12px}.session-bar .el-select{width:min(360px,70vw)}.message-history{max-height:220px;overflow:auto;margin-bottom:14px;padding:10px;background:#f7f9f8;border:1px solid var(--border);border-radius:6px}.message-history p{display:grid;grid-template-columns:54px 1fr;gap:8px;margin:6px 0;line-height:1.5}.message-history p.assistant strong{color:var(--success)}.mode-row{display:flex;align-items:center;gap:8px;margin:8px 0 14px;color:var(--ink-muted);font-size:12px}.question-bar{display:grid;grid-template-columns:1fr auto;gap:10px}.quick-prompts{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 18px}.agent-layout h2{font-size:18px;line-height:1.5}.agent-layout h3{margin:22px 0 10px;font-size:15px}.trace-list{display:grid;gap:10px}.trace-step{display:grid;grid-template-columns:32px 1fr;gap:12px;border:1px solid var(--border);border-radius:6px;padding:12px;background:#fff}.trace-step>span{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#2563eb;color:#fff;font-weight:700}.trace-step strong,.trace-step small,.trace-step code{display:block}.trace-step small{margin-top:2px;color:var(--ink-muted)}.trace-step p{margin:8px 0;color:var(--ink);line-height:1.5}.trace-step code{white-space:normal;word-break:break-word;color:var(--ink-muted);font-size:12px}
 </style>

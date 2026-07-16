@@ -28,6 +28,12 @@ const router = createRouter({
       meta: { title: "商品分析", requiresAuth: true },
     },
     {
+      path: "/customers",
+      name: "customers",
+      component: () => import("@/views/Ecommerce/Customers.vue"),
+      meta: { title: "客户分析", requiresAuth: true },
+    },
+    {
       path: "/campaigns",
       name: "campaigns",
       component: () => import("@/views/Ecommerce/Campaigns.vue"),
@@ -38,6 +44,18 @@ const router = createRouter({
       name: "recommendations",
       component: () => import("@/views/Ecommerce/Recommendations.vue"),
       meta: { title: "建议审批", requiresAuth: true },
+    },
+    {
+      path: "/runs",
+      name: "runs",
+      component: () => import("@/views/Ecommerce/Runs.vue"),
+      meta: { title: "Agent 运行中心", requiresAuth: true },
+    },
+    {
+      path: "/agent-evaluation",
+      name: "agent-evaluation",
+      component: () => import("@/views/Ecommerce/AgentEvaluation.vue"),
+      meta: { title: "电商 Agent 评测", requiresAuth: true },
     },
     {
       path: "/knowledge",

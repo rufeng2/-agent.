@@ -61,6 +61,10 @@
         </article>
       </div>
     </div>
+    <el-row :gutter="16" class="section-row">
+      <el-col :xs="24" :lg="12"><div class="panel section-panel"><h2>转化漏斗</h2><div v-for="stage in funnel?.stages || []" :key="stage.name" class="funnel-row"><span>{{ stage.name }}</span><b>{{ stage.value }}</b><small>{{ stage.conversion_from_previous }}%</small></div></div></el-col>
+      <el-col :xs="24" :lg="12"><div class="panel section-panel"><h2>未来 7 天 GMV 模拟预测</h2><el-table :data="forecast?.points || []"><el-table-column prop="date" label="日期"/><el-table-column prop="predicted_gmv" label="预测 GMV"/><el-table-column prop="lower" label="下界"/><el-table-column prop="upper" label="上界"/></el-table></div></el-col>
+    </el-row>
   </section>
 </template>
 
@@ -71,6 +75,7 @@ import { ecommerceAPI } from "@/api/client"
 
 const loading = ref(false)
 const dashboard = ref<any>(null)
+const funnel = ref<any>(null), forecast=ref<any>(null)
 const maxGmv = computed(() => Math.max(...(dashboard.value?.trend || []).map((row: any) => Number(row.gmv)), 1))
 
 function trendHeight(value: number) {
@@ -84,7 +89,7 @@ function impactWidth(value: number) {
 async function load() {
   loading.value = true
   try {
-    dashboard.value = (await ecommerceAPI.dashboard()).data.data
+    const [a,b,c]=await Promise.all([ecommerceAPI.dashboard(),ecommerceAPI.funnel(),ecommerceAPI.forecast()]);dashboard.value=a.data.data;funnel.value=b.data.data;forecast.value=c.data.data
   } catch {
     ElMessage.error("运营数据加载失败")
   } finally {
@@ -96,5 +101,5 @@ onMounted(load)
 </script>
 
 <style scoped>
-.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.metric-card{background:#fff;border:1px solid var(--border);border-radius:6px;padding:16px}.metric-card span{display:block;color:var(--ink-muted);font-size:12px}.metric-card strong{display:block;margin-top:8px;font-size:24px}.metric-card em{font-style:normal;font-size:12px}.metric-card em.down,.negative{color:var(--danger)}.metric-card em.up,.positive{color:var(--success)}.section-row{margin-top:16px}.section-panel{padding:16px}.section-panel h2{margin:0 0 12px;font-size:16px}.trend-chart{display:flex;align-items:end;gap:12px;height:170px;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:6px;background:#f8fafc}.trend-bar{display:grid;grid-template-rows:1fr auto auto;gap:6px;align-items:end;min-width:62px;text-align:center}.trend-bar div{display:flex;align-items:end;justify-content:center;height:104px}.trend-bar i{display:block;width:28px;border-radius:4px 4px 0 0;background:#2563eb}.trend-bar span,.trend-bar b{font-size:12px;color:var(--ink-muted)}.alert-item{border-top:1px solid var(--border);padding:12px 0}.alert-item:first-of-type{border-top:0}.alert-item strong{display:block;margin:6px 0}.alert-item p{margin:0;color:var(--ink-muted);line-height:1.6}.attribution-panel{margin-top:16px}.attribution-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.attribution-item{border:1px solid var(--border);border-radius:6px;padding:14px;background:#fff}.attribution-item strong,.attribution-item b,.attribution-item span,.attribution-item small{display:block}.attribution-item span{margin-top:4px;color:var(--ink-muted);font-size:12px;line-height:1.5}.attribution-item b{margin-top:12px;font-size:20px}.impact-track{height:6px;margin:8px 0;background:#eef2f6;border-radius:999px;overflow:hidden}.impact-track i{display:block;height:100%;background:var(--success)}.impact-track i.negative{background:var(--danger)}.attribution-item small{margin-top:4px;color:var(--ink-muted)}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.metric-card{background:#fff;border:1px solid var(--border);border-radius:6px;padding:16px}.metric-card span{display:block;color:var(--ink-muted);font-size:12px}.metric-card strong{display:block;margin-top:8px;font-size:24px}.metric-card em{font-style:normal;font-size:12px}.metric-card em.down,.negative{color:var(--danger)}.metric-card em.up,.positive{color:var(--success)}.section-row{margin-top:16px}.section-panel{padding:16px}.section-panel h2{margin:0 0 12px;font-size:16px}.trend-chart{display:flex;align-items:end;gap:12px;height:170px;margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:6px;background:#f8fafc;overflow-x:auto}.trend-bar{display:grid;grid-template-rows:1fr auto auto;gap:6px;align-items:end;min-width:62px;text-align:center}.trend-bar div{display:flex;align-items:end;justify-content:center;height:104px}.trend-bar i{display:block;width:28px;border-radius:4px 4px 0 0;background:#2563eb}.trend-bar span,.trend-bar b{font-size:12px;color:var(--ink-muted)}.alert-item{border-top:1px solid var(--border);padding:12px 0}.alert-item:first-of-type{border-top:0}.alert-item strong{display:block;margin:6px 0}.alert-item p{margin:0;color:var(--ink-muted);line-height:1.6}.attribution-panel{margin-top:16px}.attribution-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.attribution-item{border:1px solid var(--border);border-radius:6px;padding:14px;background:#fff}.attribution-item strong,.attribution-item b,.attribution-item span,.attribution-item small{display:block}.attribution-item span{margin-top:4px;color:var(--ink-muted);font-size:12px;line-height:1.5}.attribution-item b{margin-top:12px;font-size:20px}.impact-track{height:6px;margin:8px 0;background:#eef2f6;border-radius:999px;overflow:hidden}.impact-track i{display:block;height:100%;background:var(--success)}.impact-track i.negative{background:var(--danger)}.attribution-item small{margin-top:4px;color:var(--ink-muted)}.funnel-row{display:grid;grid-template-columns:1fr auto 70px;gap:12px;padding:9px;border-bottom:1px solid var(--border)}.funnel-row small{text-align:right;color:var(--ink-muted)}
 </style>

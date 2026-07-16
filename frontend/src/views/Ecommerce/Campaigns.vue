@@ -12,6 +12,9 @@
     </div>
 
     <div v-if="plan" class="strategy-grid">
+      <div v-if="effect" class="panel section-panel wide impact-summary">
+        <h2>活动效果模拟测算</h2><p>增量 GMV {{ effect.incremental_gmv }} 元 · 优惠成本 {{ effect.discount_cost }} 元 · ROI {{ effect.roi }}</p><small>模拟测算，不代表真实业务承诺</small>
+      </div>
       <div class="panel section-panel">
         <h2>{{ plan.theme }}</h2>
         <p class="muted">目标：{{ plan.goal }}</p>
@@ -57,11 +60,14 @@ import { ecommerceAPI } from "@/api/client"
 const goal = ref("大促增长")
 const loading = ref(false)
 const plan = ref<any>(null)
+const effect = ref<any>(null)
 
 async function load() {
   loading.value = true
   try {
-    plan.value = (await ecommerceAPI.campaignPlan(goal.value)).data.data
+    const [planResponse, effectResponse] = await Promise.all([ecommerceAPI.campaignPlan(goal.value), ecommerceAPI.campaignEffect()])
+    plan.value = planResponse.data.data
+    effect.value = effectResponse.data.data
   } catch {
     ElMessage.error("活动策略生成失败")
   } finally {
@@ -73,6 +79,6 @@ onMounted(load)
 </script>
 
 <style scoped>
-.strategy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.section-panel{padding:16px}.section-panel h2{margin:0 0 12px;font-size:16px}.wide{grid-column:1/-1}.muted{color:var(--ink-muted)}
+.strategy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.section-panel{padding:16px}.section-panel h2{margin:0 0 12px;font-size:16px}.wide{grid-column:1/-1}.muted,.impact-summary small{color:var(--ink-muted)}.impact-summary p{font-size:17px;font-weight:650}
 @media(max-width:900px){.strategy-grid{grid-template-columns:1fr}}
 </style>

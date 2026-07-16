@@ -17,6 +17,11 @@ from backend.ecommerce.persistence.repository import EcommerceRepository, Versio
 from backend.ecommerce.observability import percentile
 from backend.ecommerce.segmentation import build_product_analysis
 from backend.ecommerce.tools import EcommerceTools
+from backend.ecommerce.customers import analyze_rfm
+from backend.ecommerce.funnel import analyze_funnel
+from backend.ecommerce.campaign_effect import analyze_campaign_effect
+from backend.ecommerce.competitors import analyze_competitor_prices
+from backend.ecommerce.forecast import forecast_gmv
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -74,7 +79,33 @@ async def dashboard():
 @router.get("/products", response_model=ApiResponse)
 async def products():
     dataset = _dataset()
-    return ApiResponse(data=[item.model_dump() for item in build_product_analysis(dataset)])
+    competitors = {item.product_id: item for item in analyze_competitor_prices(dataset)}
+    data = []
+    for item in build_product_analysis(dataset):
+        row = item.model_dump()
+        row.update({"competitor_price": competitors[item.product_id].competitor_price, "price_gap": competitors[item.product_id].price_gap, "price_index": competitors[item.product_id].price_index})
+        data.append(row)
+    return ApiResponse(data=data)
+
+
+@router.get("/analytics/funnel", response_model=ApiResponse)
+async def funnel_analysis():
+    return ApiResponse(data=analyze_funnel(_dataset()).model_dump())
+
+
+@router.get("/analytics/forecast", response_model=ApiResponse)
+async def gmv_forecast():
+    return ApiResponse(data=forecast_gmv(_dataset(), horizon=7).model_dump())
+
+
+@router.get("/customers", response_model=ApiResponse)
+async def customer_analysis():
+    return ApiResponse(data=analyze_rfm(_dataset()).model_dump())
+
+
+@router.get("/campaigns/effect", response_model=ApiResponse)
+async def campaign_effect():
+    return ApiResponse(data=analyze_campaign_effect(_dataset()).model_dump())
 
 
 @router.post("/agent/analyze", response_model=ApiResponse)
