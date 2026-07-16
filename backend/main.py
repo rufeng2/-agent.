@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 50)
     assert_production_settings(settings)
     yield
+    await ecommerce.close_execution_runtime()
     logger.info("系统关闭")
 
 

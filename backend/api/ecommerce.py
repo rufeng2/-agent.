@@ -113,8 +113,18 @@ async def _execution_runtime() -> LangGraphExecutionAgent:
     global _execution_agent
     await _ensure_repository()
     if _execution_agent is None:
-        _execution_agent = LangGraphExecutionAgent(_repository, await _dataset())
+        from backend.ecommerce.mcp_client import EcommerceMCPClient
+        client = EcommerceMCPClient(_repository.url, persistent=True)
+        await client.start()
+        _execution_agent = LangGraphExecutionAgent(_repository, await _dataset(), mcp_client=client)
     return _execution_agent
+
+
+async def close_execution_runtime() -> None:
+    global _execution_agent
+    if _execution_agent is not None:
+        await _execution_agent.mcp.close()
+        _execution_agent = None
 
 
 def _execution_task_data(item) -> dict:
@@ -161,7 +171,7 @@ async def mcp_status():
         tools = await runtime.mcp.list_tools()
     except Exception as exc:
         return ApiResponse(code=503, msg="MCP Server unavailable", data={"server": "ecommerce-operations", "transport": "stdio", "status": "unavailable", "error": str(exc), "tools": []})
-    return ApiResponse(data={"server": "ecommerce-operations", "transport": "stdio", "status": "ready", "tools": tools})
+    return ApiResponse(data={"server": "ecommerce-operations", "transport": "stdio", "status": "ready", "tools": tools, "health": runtime.mcp.health()})
 
 
 @router.post("/execution/tasks", response_model=ApiResponse, status_code=201)

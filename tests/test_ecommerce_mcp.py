@@ -20,3 +20,20 @@ async def test_mcp_server_rejects_mutation_without_approved_task(tmp_path):
 
     with pytest.raises(RuntimeError, match="approved_task_id"):
         await client.call_tool("update_product_price", {"product_id": "P002", "new_price": 300, "expected_version": 1, "approved_task_id": ""})
+
+
+@pytest.mark.asyncio
+async def test_persistent_mcp_client_reuses_initialized_session(tmp_path):
+    client = EcommerceMCPClient(f"sqlite+aiosqlite:///{tmp_path / 'mcp.db'}", persistent=True)
+    try:
+        await client.start()
+        await client.call_tool("get_product", {"product_id": "P001"})
+        await client.call_tool("get_product", {"product_id": "P002"})
+        health = client.health()
+
+        assert health["connected"] is True
+        assert health["persistent"] is True
+        assert health["calls"] == 2
+        assert health["circuit_open"] is False
+    finally:
+        await client.close()
