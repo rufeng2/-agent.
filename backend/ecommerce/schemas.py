@@ -21,6 +21,7 @@ class OrderRecord(BaseModel):
     units: int
     gmv: float
     refund_amount: float
+    customer_id: str = ""
 
 
 class TrafficRecord(BaseModel):
@@ -64,6 +65,35 @@ class CompetitorRecord(BaseModel):
     competitor_promo: str
 
 
+class CustomerRecord(BaseModel):
+    customer_id: str
+    registered_at: date
+    region: str
+    member_level: str
+
+
+class FunnelRecord(BaseModel):
+    date: date
+    product_id: str
+    impressions: int
+    clicks: int
+    visitors: int
+    add_to_cart: int
+    checkout: int
+    paid_orders: int
+    refunded_orders: int
+
+
+class CampaignRecord(BaseModel):
+    campaign_id: str
+    date: date
+    product_id: str
+    campaign_type: str
+    discount_cost: float
+    attributed_gmv: float
+    baseline_gmv: float
+
+
 class OperationRules(BaseModel):
     thresholds: dict[str, float]
     risk_actions: dict[str, str]
@@ -77,6 +107,9 @@ class EcommerceDataset(BaseModel):
     inventory: list[InventoryRecord]
     reviews: list[ReviewRecord]
     competitors: list[CompetitorRecord]
+    customers: list[CustomerRecord] = []
+    funnel: list[FunnelRecord] = []
+    campaigns: list[CampaignRecord] = []
     rules: OperationRules
 
 

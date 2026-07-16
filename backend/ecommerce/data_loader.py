@@ -7,13 +7,16 @@ from pydantic import BaseModel
 
 from backend.ecommerce.schemas import (
     AdSpendRecord,
+    CampaignRecord,
     CompetitorRecord,
+    CustomerRecord,
     EcommerceDataset,
     InventoryRecord,
     OperationRules,
     OrderRecord,
     ProductRecord,
     ReviewRecord,
+    FunnelRecord,
     TrafficRecord,
 )
 
@@ -37,6 +40,9 @@ class EcommerceDataLoader:
             inventory=self._read_csv("inventory.csv", InventoryRecord),
             reviews=self._read_csv("reviews.csv", ReviewRecord),
             competitors=self._read_csv("competitors.csv", CompetitorRecord),
+            customers=self._read_csv("customers.csv", CustomerRecord),
+            funnel=self._read_csv("funnel.csv", FunnelRecord),
+            campaigns=self._read_csv("campaigns.csv", CampaignRecord),
             rules=OperationRules.model_validate(json.loads((self.root / "operation_rules.json").read_text(encoding="utf-8"))),
         )
 
@@ -50,6 +56,9 @@ class EcommerceDataLoader:
             "inventory.csv",
             "reviews.csv",
             "competitors.csv",
+            "customers.csv",
+            "funnel.csv",
+            "campaigns.csv",
             "operation_rules.json",
         ]
 
