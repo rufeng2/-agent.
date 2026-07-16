@@ -4,6 +4,7 @@ import pytest
 
 from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.multi_agent import MultiAgentCoordinator, SpecialistAgent
+from backend.ecommerce.operation_scenarios import detect_operation_scenario
 from backend.ecommerce.runtime.graph import EcommerceGraphRuntime
 
 
@@ -25,6 +26,17 @@ def test_product_recommendation_routes_to_product_specialist_only():
     selected = coordinator.route("帮我选一个商品推荐")
 
     assert selected == ["product"]
+
+
+@pytest.mark.parametrize(("question", "scenario_id", "agents"), [
+    ("大促前补货周期会不会导致断货", "stockout_before_campaign", ["product", "campaign"]),
+    ("广告烧钱但没有成交，预算怎么调", "ad_budget_waste", ["data_analyst", "product"]),
+    ("高价值老客复购下降怎么召回", "customer_churn", ["customer", "campaign"]),
+])
+def test_real_operation_pain_points_route_to_specialist_team(question, scenario_id, agents):
+    scenario = detect_operation_scenario(question)
+    assert scenario and scenario.id == scenario_id
+    assert MultiAgentCoordinator(_dataset()).route(question) == agents
 
 
 def test_specialist_rejects_tool_outside_its_permission_boundary():
@@ -59,3 +71,12 @@ async def test_product_recommendation_returns_a_product_not_gmv_diagnosis():
     assert [item["agent"] for item in result["analysis"]["agent_trace"]] == [
         "supervisor", "product", "risk_reviewer", "report_writer"
     ]
+
+
+@pytest.mark.asyncio
+async def test_result_exposes_business_pain_point_and_decision_target():
+    result = await EcommerceGraphRuntime(_dataset(), planner=None).run("广告烧钱但没有成交，预算怎么调", context=[])
+    context = result["analysis"]["scenario_context"]
+    assert context["scenario"] == "ad_budget_waste"
+    assert "预算" in context["pain_point"]
+    assert "重新分配预算" in context["decision"]

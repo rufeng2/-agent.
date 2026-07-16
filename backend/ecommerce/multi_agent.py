@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from backend.ecommerce.agent import EcommerceAgent
 from backend.ecommerce.schemas import EcommerceDataset, Evidence, RecommendedAction, ToolTraceStep
+from backend.ecommerce.operation_scenarios import detect_operation_scenario
 from backend.ecommerce.tool_registry import EcommerceToolRegistry
 from backend.ecommerce.tools import EcommerceTools
 
@@ -49,6 +50,8 @@ class SpecialistAgent:
     def _select_tools(self, question: str) -> tuple[str, ...]:
         if self.role == "data_analyst":
             tools = ["get_kpi_snapshot", "explain_gmv_attribution"]
+            if any(word in question for word in ("异常", "下降", "广告", "投放", "差评")):
+                tools.append("detect_anomalies")
             if "漏斗" in question or "转化" in question:
                 tools.append("analyze_conversion_funnel")
             if "预测" in question or "趋势" in question:
@@ -56,7 +59,7 @@ class SpecialistAgent:
             return tuple(tools)
         if self.role == "product":
             tools = ["rank_products"]
-            if "库存" in question or "风险" in question:
+            if any(word in question for word in ("库存", "风险", "断货", "补货", "广告", "投放", "差评", "评分")):
                 tools.append("detect_anomalies")
             if "竞品" in question or "价格" in question:
                 tools.append("analyze_competitor_price")
@@ -69,8 +72,18 @@ class MultiAgentCoordinator:
         self.dataset = dataset
 
     def route(self, question: str) -> list[str]:
-        if _is_product_recommendation(question):
-            return ["product"]
+        domain_matches = [
+            role for role, keywords in (
+                ("product", ("商品", "库存", "补货", "竞品", "价格", "选品")),
+                ("customer", ("客户", "用户", "复购", "RFM", "LTV", "会员")),
+                ("campaign", ("活动", "大促", "方案", "ROI", "预算")),
+            ) if any(word in question for word in keywords)
+        ]
+        if len(domain_matches) >= 3:
+            return ["data_analyst", *domain_matches]
+        scenario = detect_operation_scenario(question)
+        if scenario:
+            return list(scenario.agents)
         selected = ["data_analyst"]
         domains = (
             ("product", ("商品", "库存", "补货", "竞品", "价格", "选品")),
@@ -98,11 +111,21 @@ class MultiAgentCoordinator:
 
     def synthesize(self, question: str, reports: list[SpecialistReport], review: dict):
         analysis = EcommerceAgent(self.dataset).analyze(question)
+        scenario = detect_operation_scenario(question)
         traces = [trace for report in reports for trace in report.tool_trace]
         evidence = [item for report in reports for item in report.evidence]
         analysis.tool_trace = traces or analysis.tool_trace
         analysis.evidence = evidence or analysis.evidence
         analysis.summary = " ".join(report.summary for report in reports if report.summary)
+        if scenario:
+            analysis.intent = scenario.intent
+            analysis.scenario_context = {
+                "scenario": scenario.id,
+                "pain_point": scenario.pain_point,
+                "decision": scenario.decision,
+            }
+            if scenario.id != "product_recommendation":
+                analysis.summary = EcommerceAgent(self.dataset).analyze(question).summary
         if _is_product_recommendation(question):
             product_report = next((report for report in reports if report.agent == "product"), None)
             top_product = product_report.evidence[0] if product_report and product_report.evidence else None

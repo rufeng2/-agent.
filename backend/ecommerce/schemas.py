@@ -298,3 +298,4 @@ class AgentAnalysis(BaseModel):
     completion_tokens: int = 0
     warnings: list[str] = []
     agent_trace: list[dict[str, str | list[str]]] = []
+    scenario_context: dict[str, str] = {}

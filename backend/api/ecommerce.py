@@ -26,6 +26,7 @@ from backend.ecommerce.forecast import forecast_gmv
 from backend.ecommerce.simulation import SimulationEngine
 from backend.ecommerce.runtime.service import EcommerceJobService
 from backend.ecommerce.growth_workflow import GrowthWorkflowService
+from backend.ecommerce.operations_center import build_operations_center
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -102,6 +103,11 @@ async def dashboard():
     dataset = await _dataset()
     summary = build_dashboard(dataset)
     return ApiResponse(data=summary.model_dump())
+
+
+@router.get("/operations-center", response_model=ApiResponse)
+async def operations_center():
+    return ApiResponse(data=build_operations_center(await _dataset()))
 
 
 @router.get("/products", response_model=ApiResponse)

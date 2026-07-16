@@ -16,6 +16,12 @@ const router = createRouter({
       meta: { title: "运营驾驶舱", requiresAuth: true },
     },
     {
+      path: "/operations-center",
+      name: "operations-center",
+      component: () => import("@/views/Ecommerce/OperationsCenter.vue"),
+      meta: { title: "运营任务中心", requiresAuth: true },
+    },
+    {
       path: "/agent",
       name: "agent",
       component: () => import("@/views/Ecommerce/AgentWorkspace.vue"),

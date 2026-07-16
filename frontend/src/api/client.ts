@@ -134,6 +134,7 @@ export const operationsAPI = {
 
 export const ecommerceAPI = {
   dashboard: () => client.get("/ecommerce/dashboard"),
+  operationsCenter: () => client.get("/ecommerce/operations-center"),
   products: () => client.get("/ecommerce/products"),
   simulationState: () => client.get("/ecommerce/simulation/state"),
   advanceSimulation: (expected_version: number) => client.post("/ecommerce/simulation/advance", { expected_version }),

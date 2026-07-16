@@ -15,6 +15,7 @@
       </div>
       <nav>
         <router-link to="/dashboard" title="运营驾驶舱"><el-icon><DataBoard /></el-icon><span class="sidebar-copy">运营驾驶舱</span></router-link>
+        <router-link to="/operations-center" title="运营任务中心"><el-icon><Checked /></el-icon><span class="sidebar-copy">运营任务中心</span></router-link>
         <router-link to="/agent" title="运营 Agent"><el-icon><ChatDotRound /></el-icon><span class="sidebar-copy">运营 Agent</span></router-link>
         <router-link to="/products" title="商品分析"><el-icon><Goods /></el-icon><span class="sidebar-copy">商品分析</span></router-link>
         <router-link to="/customers" title="客户分析"><el-icon><User /></el-icon><span class="sidebar-copy">客户分析</span></router-link>
