@@ -134,6 +134,7 @@ export const operationsAPI = {
 
 export const ecommerceAPI = {
   dashboard: () => client.get("/ecommerce/dashboard"),
+  mcpStatus: () => client.get("/ecommerce/mcp/status"),
   executionTasks: () => client.get("/ecommerce/execution/tasks"),
   createExecutionTask: (goal: string) => client.post("/ecommerce/execution/tasks", { goal }),
   executionTask: (id: string) => client.get(`/ecommerce/execution/tasks/${id}`),

@@ -73,6 +73,28 @@ flowchart LR
 
 配置 `DEEPSEEK_API_KEY` 后，DeepSeek 主管会实际选择所需专员并汇总五类交付物，执行模式记录为 `openclaw_team_llm`，同时保存 Token 用量。模型超时、网络异常或返回未知角色时，系统拒绝非法路由并切换到确定性主管，记录明确的降级原因。
 
+## MCP 工具协议
+
+执行型 Agent 已接入官方 Python MCP SDK。LangGraph 不再直接调用商品 Repository，而是启动独立的 `ecommerce-operations` MCP Server，通过 stdio 完成协议初始化、工具发现和工具调用。
+
+| MCP Tool | 权限 | 用途 |
+|---|---|---|
+| `get_product` | 只读 | 获取商品、价格、成本、上下架状态和版本 |
+| `update_product_price` | 写入 | 按乐观锁版本更新价格 |
+| `set_product_listing` | 写入 | 上架或下架商品 |
+| `rollback_product` | 写入 | 恢复执行前商品快照 |
+| `create_marketing_campaign` | 写入 | 创建沙箱营销活动回执 |
+
+所有写工具必须携带 `approved_task_id`，否则 MCP Server 拒绝调用。价格和上下架工具同时校验 `expected_version`，防止读取后业务状态已变化仍覆盖写入。任务回执保存 MCP server、transport 和 tool，`GET /api/ecommerce/mcp/status` 可查看 Server 状态与工具 Schema。
+
+```text
+LangGraph Tool Executor
+  -> MCP ClientSession
+  -> stdio transport
+  -> ecommerce-operations MCP Server
+  -> Catalog / Marketing sandbox adapters
+```
+
 ## 数据分析能力
 
 | 分析模块 | 核心指标与方法 | 业务用途 |

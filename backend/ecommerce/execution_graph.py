@@ -8,6 +8,7 @@ from langgraph.types import Command, interrupt
 
 from backend.ecommerce.persistence.repository import EcommerceRepository, VersionConflict
 from backend.ecommerce.schemas import EcommerceDataset
+from backend.ecommerce.mcp_client import EcommerceMCPClient
 
 
 class ExecutionPlanningError(ValueError):
@@ -38,9 +39,10 @@ def _event(agent: str, event_type: str, detail: str) -> dict[str, Any]:
 
 
 class LangGraphExecutionAgent:
-    def __init__(self, repository: EcommerceRepository, dataset: EcommerceDataset):
+    def __init__(self, repository: EcommerceRepository, dataset: EcommerceDataset, mcp_client: EcommerceMCPClient | None = None):
         self.repository = repository
         self.dataset = dataset
+        self.mcp = mcp_client or EcommerceMCPClient(repository.url)
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -110,14 +112,14 @@ class LangGraphExecutionAgent:
             raise VersionConflict("Only the current completed task can be rolled back")
         action_type, before = task.result.get("action_type"), task.result.get("before", {})
         if action_type == "price_update":
-            row = await self.repository.apply_catalog_action(before["product_id"], price_override=float(before["price"]))
-            rollback_result = {"price": row.price_override, "catalog_version": row.version}
+            response = await self.mcp.call_tool("rollback_product", {"product_id": before["product_id"], "price": float(before["price"]), "listing_status": None, "expected_version": int(task.result["after"]["catalog_version"]), "approved_task_id": task_id})
+            rollback_result = response["after"]
         elif action_type in {"product_publish", "product_unpublish"}:
-            row = await self.repository.apply_catalog_action(before["product_id"], listing_status=before["listing_status"])
-            rollback_result = {"listing_status": row.listing_status, "catalog_version": row.version}
+            response = await self.mcp.call_tool("rollback_product", {"product_id": before["product_id"], "price": None, "listing_status": before["listing_status"], "expected_version": int(task.result["after"]["catalog_version"]), "approved_task_id": task_id})
+            rollback_result = response["after"]
         else:
             raise ExecutionPlanningError("营销活动演示回执不支持回滚")
-        events = [*task.events, _event("Tool Executor", "task_rolled_back", f"{operator} 将业务状态恢复到执行前")]
+        events = [*task.events, _event("Tool Executor", "mcp_rollback_completed", f"{operator} 通过 MCP 将业务状态恢复到执行前")]
         return await self.repository.update_execution_task(task_id, workspace_id, status="rolled_back", events=events, result={**task.result, "rollback": rollback_result}, expected_version=expected_version)
 
     async def _current_state(self, task_id: str, output: dict) -> dict:
@@ -142,11 +144,8 @@ class LangGraphExecutionAgent:
         return {"action_type": action_type, "specialist": specialist, "product_id": product.product_id, "parameters": parameters, "events": events}
 
     async def _catalog_agent(self, state: ExecutionState):
-        product = next(item for item in self.dataset.products if item.product_id == state["product_id"])
-        catalog = {item.product_id: item for item in await self.repository.list_catalog_states()}.get(product.product_id)
-        snapshot = product.model_dump(mode="json")
-        snapshot.update({"price": catalog.price_override if catalog and catalog.price_override is not None else product.price, "listing_status": catalog.listing_status if catalog else "listed", "catalog_version": catalog.version if catalog else 1})
-        return {"product": snapshot, "events": [*state.get("events", []), _event("Catalog Agent", "context_loaded", f"读取 {product.name} 当前价格与上下架状态")]}
+        snapshot = await self.mcp.call_tool("get_product", {"product_id": state["product_id"]})
+        return {"product": snapshot, "events": [*state.get("events", []), _event("Catalog Agent", "mcp_tool_called", f"通过 MCP get_product 读取 {snapshot['name']} 当前状态")]}
 
     async def _pricing_agent(self, state: ExecutionState):
         product, new_price = state["product"], float(state["parameters"]["new_price"])
@@ -184,17 +183,22 @@ class LangGraphExecutionAgent:
         before = dict(state["product"])
         action_type = state["action_type"]
         if action_type == "price_update":
-            row = await self.repository.apply_catalog_action(state["product_id"], price_override=float(state["parameters"]["new_price"]))
-            after = {**before, "price": row.price_override, "catalog_version": row.version}
+            tool_name = "update_product_price"
+            response = await self.mcp.call_tool(tool_name, {"product_id": state["product_id"], "new_price": float(state["parameters"]["new_price"]), "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})
+            after = response["after"]
         elif action_type in {"product_publish", "product_unpublish"}:
-            row = await self.repository.apply_catalog_action(state["product_id"], listing_status=state["parameters"]["listing_status"])
-            after = {**before, "listing_status": row.listing_status, "catalog_version": row.version}
+            tool_name = "set_product_listing"
+            response = await self.mcp.call_tool(tool_name, {"product_id": state["product_id"], "listing_status": state["parameters"]["listing_status"], "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})
+            after = response["after"]
         else:
+            tool_name = "create_marketing_campaign"
+            campaign = state["parameters"]["campaign"]
+            response = await self.mcp.call_tool(tool_name, {"product_id": state["product_id"], "name": campaign["name"], "daily_budget": campaign["daily_budget"], "target_acos_pct": campaign["target_acos_pct"], "approved_task_id": state["task_id"]})
             after = before
-        result = {"task_id": state["task_id"], "status": "completed", "environment": "sandbox", "action_type": action_type, "before": before, "after": after, "parameters": state["parameters"]}
+        result = {"task_id": state["task_id"], "status": "completed", "environment": "sandbox", "action_type": action_type, "before": before, "after": after, "parameters": state["parameters"], "mcp": {"server": "ecommerce-operations", "transport": "stdio", "tool": tool_name}}
         if action_type == "marketing_plan":
-            result["campaign"] = state["parameters"]["campaign"]
-        return {"status": "completed", "result": result, "events": [*state["events"], _event("Tool Executor", "task_completed", "业务工具执行成功并返回回执")]}
+            result["campaign"] = response
+        return {"status": "completed", "result": result, "events": [*state["events"], _event("Tool Executor", "mcp_tool_completed", f"MCP {tool_name} 执行成功并返回回执")]}
 
     def _classify_action(self, goal: str) -> tuple[str, str]:
         if "下架" in goal:

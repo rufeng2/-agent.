@@ -51,7 +51,8 @@ async def test_task_resumes_from_database_after_runtime_restart(tmp_path):
 
     assert completed.status == "completed"
     assert completed.result["after"]["listing_status"] == "unlisted"
-    assert completed.events[-1]["type"] == "task_completed"
+    assert completed.events[-1]["type"] == "mcp_tool_completed"
+    assert completed.result["mcp"] == {"server": "ecommerce-operations", "transport": "stdio", "tool": "set_product_listing"}
     await repository.dispose()
 
 

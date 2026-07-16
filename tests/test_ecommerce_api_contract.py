@@ -39,6 +39,16 @@ def test_ecommerce_dashboard_endpoint_returns_kpis():
     assert payload["data"]["anomalies"]
 
 
+def test_mcp_status_exposes_real_server_tools():
+    response = client.get("/api/ecommerce/mcp/status")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] == "ready"
+    assert data["transport"] == "stdio"
+    assert "update_product_price" in {tool["name"] for tool in data["tools"]}
+
+
 def test_ecommerce_agent_endpoint_returns_trace_and_recommendations():
     response = client.post("/api/ecommerce/agent/analyze", json={"question": "昨天 GMV 为什么下降？"})
 
@@ -73,6 +83,7 @@ def test_execution_agent_creates_approves_and_rolls_back_task():
     completed = completed_response.json()["data"]
     assert completed["status"] == "completed"
     assert completed["result"]["after"]["price"] == 280
+    assert completed["result"]["mcp"]["tool"] == "update_product_price"
 
     rolled_back = client.post(
         f"/api/ecommerce/execution/tasks/{created['id']}/rollback",

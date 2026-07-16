@@ -154,6 +154,16 @@ async def operations_center():
     return ApiResponse(data=build_operations_center(await _dataset()))
 
 
+@router.get("/mcp/status", response_model=ApiResponse)
+async def mcp_status():
+    runtime = await _execution_runtime()
+    try:
+        tools = await runtime.mcp.list_tools()
+    except Exception as exc:
+        return ApiResponse(code=503, msg="MCP Server unavailable", data={"server": "ecommerce-operations", "transport": "stdio", "status": "unavailable", "error": str(exc), "tools": []})
+    return ApiResponse(data={"server": "ecommerce-operations", "transport": "stdio", "status": "ready", "tools": tools})
+
+
 @router.post("/execution/tasks", response_model=ApiResponse, status_code=201)
 async def create_execution_task(request: ExecutionTaskRequest):
     goal = request.goal.strip()

@@ -22,6 +22,7 @@ class VersionConflict(ValueError):
 
 class EcommerceRepository:
     def __init__(self, url: str):
+        self.url = url
         self.database = EcommerceDatabase(url)
 
     async def initialize(self) -> None:
@@ -235,12 +236,15 @@ class EcommerceRepository:
         async with self.database.sessions() as session:
             return list((await session.execute(select(CatalogStateModel))).scalars())
 
-    async def apply_catalog_action(self, product_id: str, listing_status: str | None = None, price_override: float | None = None) -> CatalogStateModel:
+    async def apply_catalog_action(self, product_id: str, listing_status: str | None = None, price_override: float | None = None, expected_version: int | None = None) -> CatalogStateModel:
         async with self.database.sessions() as session:
             item = await session.get(CatalogStateModel, product_id)
             if item is None:
                 item = CatalogStateModel(product_id=product_id)
                 session.add(item)
+            current_version = item.version or 1
+            if expected_version is not None and current_version != expected_version:
+                raise VersionConflict(f"Expected catalog version {expected_version}, found {current_version}")
             if listing_status is not None:
                 item.listing_status = listing_status
             if price_override is not None:
