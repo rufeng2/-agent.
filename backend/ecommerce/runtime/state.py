@@ -16,3 +16,5 @@ class EcommerceAgentState(TypedDict, total=False):
     selected_agents: list[str]
     specialist_reports: list[object]
     risk_review: dict
+    planner_used: bool
+    planner_fallback: str

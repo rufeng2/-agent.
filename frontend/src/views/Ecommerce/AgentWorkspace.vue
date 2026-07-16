@@ -39,7 +39,7 @@
           <div><span>现实运营痛点</span><strong>{{ analysis.scenario_context.pain_point }}</strong></div>
           <div><span>本次需要做的决策</span><strong>{{ analysis.scenario_context.decision }}</strong></div>
         </div>
-        <div class="mode-row"><el-tag :type="analysis.execution_mode === 'llm' ? 'success' : 'warning'">{{ modeLabel(analysis.execution_mode) }}</el-tag><span v-if="analysis.fallback_reason">模型不可用时已自动切换稳定分析模式</span></div>
+        <div class="mode-row"><el-tag :type="isLlmMode(analysis.execution_mode) ? 'success' : 'warning'">{{ modeLabel(analysis.execution_mode) }}</el-tag><span v-if="analysis.fallback_reason">模型不可用时已自动切换稳定分析模式</span></div>
         <el-descriptions :column="3" border>
           <el-descriptions-item label="分析场景">{{ intentLabel(analysis.intent) }}</el-descriptions-item>
           <el-descriptions-item label="风险等级"><el-tag :type="riskType(analysis.risk_level)">{{ riskLabel(analysis.risk_level) }}</el-tag></el-descriptions-item>
@@ -116,7 +116,8 @@ const intentLabel = (value: string) => intentNames[value] || value
 const statusLabel = (value: string) => ({ completed: "已完成", passed: "审核通过", insufficient_evidence: "证据不足" } as Record<string, string>)[value] || value
 const riskLabel = (value: string) => ({ high: "高风险", medium: "中风险", low: "低风险" } as Record<string, string>)[value] || value
 const riskType = (value: string) => value === "high" ? "danger" : value === "medium" ? "warning" : "success"
-const modeLabel = (value: string) => ({ llm: "大模型增强分析", openclaw_team_deterministic: "跨境电商 Agent 团队", multi_agent_deterministic: "多 Agent 稳定分析", deterministic_fallback: "稳定降级分析", deterministic: "规则分析" } as Record<string, string>)[value] || value
+const modeLabel = (value: string) => ({ llm: "大模型增强分析", openclaw_team_llm: "DeepSeek 主管增强团队", openclaw_team_deterministic: "跨境电商 Agent 稳定团队", multi_agent_deterministic: "多 Agent 稳定分析", deterministic_fallback: "稳定降级分析", deterministic: "规则分析" } as Record<string, string>)[value] || value
+const isLlmMode = (value: string) => value === "llm" || value === "openclaw_team_llm"
 
 async function loadSessions() { sessions.value = (await ecommerceAPI.sessions()).data.data }
 async function selectSession() { if (!sessionId.value) return; const data=(await ecommerceAPI.sessionDetail(sessionId.value)).data.data; messages.value=data.messages }

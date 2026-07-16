@@ -5,6 +5,7 @@ from backend.db.session import AsyncSessionLocal
 from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.persistence.repository import EcommerceRepository
 from backend.ecommerce.runtime.service import EcommerceJobService
+from backend.ecommerce.llm import configured_team_planner
 from backend.tasks.celery_app import celery_app
 
 
@@ -21,7 +22,7 @@ def run_ecommerce_agent(self, job_id: str, workspace_id: str = "workspace-demo")
         repository = EcommerceRepository(settings.ECOMMERCE_DATABASE_URL)
         await repository.initialize()
         try:
-            return await EcommerceJobService(repository, EcommerceDataLoader().load_cached()).run_inline(job_id, workspace_id)
+            return await EcommerceJobService(repository, EcommerceDataLoader().load_cached(), configured_team_planner()).run_inline(job_id, workspace_id)
         finally:
             await repository.dispose()
 

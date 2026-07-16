@@ -28,6 +28,7 @@ from backend.ecommerce.runtime.service import EcommerceJobService
 from backend.ecommerce.growth_workflow import GrowthWorkflowService
 from backend.ecommerce.operations_center import build_operations_center
 from backend.ecommerce.action_agent import CommerceActionAgent
+from backend.ecommerce.llm import configured_team_planner
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -272,7 +273,7 @@ async def create_agent_job(request: AgentJobRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="question is required")
     await _ensure_repository()
-    service = EcommerceJobService(_repository)
+    service = EcommerceJobService(_repository, team_planner=configured_team_planner())
     job = await service.create_job(request.question.strip(), "workspace-demo", request.session_id, request.idempotency_key or f"job-{request.question.strip()}")
     if settings.AGENT_EXECUTION_MODE == "celery":
         from backend.tasks.ecommerce_agent_task import run_ecommerce_agent
