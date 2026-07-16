@@ -22,6 +22,7 @@ from backend.ecommerce.funnel import analyze_funnel
 from backend.ecommerce.campaign_effect import analyze_campaign_effect
 from backend.ecommerce.competitors import analyze_competitor_prices
 from backend.ecommerce.forecast import forecast_gmv
+from backend.ecommerce.simulation import SimulationEngine
 from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
@@ -41,8 +42,20 @@ class ApprovalRequest(BaseModel):
     idempotency_key: str = ""
 
 
-def _dataset():
-    return _loader.load_cached()
+class SimulationTransitionRequest(BaseModel):
+    expected_version: int
+
+
+async def _simulation_result():
+    await _ensure_repository()
+    baseline = _loader.load_cached()
+    baseline_date = max(row.date for row in baseline.orders)
+    state = await _repository.get_simulation_state(baseline_date)
+    return SimulationEngine.apply(baseline, state.step, state.seed, state.version)
+
+
+async def _dataset():
+    return (await _simulation_result()).dataset
 
 
 async def _ensure_repository() -> None:
@@ -71,41 +84,82 @@ def _recommendation_data(item) -> dict:
 
 @router.get("/dashboard", response_model=ApiResponse)
 async def dashboard():
-    dataset = _dataset()
+    dataset = await _dataset()
     summary = build_dashboard(dataset)
     return ApiResponse(data=summary.model_dump())
 
 
 @router.get("/products", response_model=ApiResponse)
 async def products():
-    dataset = _dataset()
+    simulation = await _simulation_result()
+    dataset = simulation.dataset
     competitors = {item.product_id: item for item in analyze_competitor_prices(dataset)}
     data = []
     for item in build_product_analysis(dataset):
         row = item.model_dump()
-        row.update({"competitor_price": competitors[item.product_id].competitor_price, "price_gap": competitors[item.product_id].price_gap, "price_index": competitors[item.product_id].price_index})
+        row.update({"competitor_price": competitors[item.product_id].competitor_price, "price_gap": competitors[item.product_id].price_gap, "price_index": competitors[item.product_id].price_index, "deltas": simulation.deltas[item.product_id]})
         data.append(row)
     return ApiResponse(data=data)
 
 
 @router.get("/analytics/funnel", response_model=ApiResponse)
 async def funnel_analysis():
-    return ApiResponse(data=analyze_funnel(_dataset()).model_dump())
+    return ApiResponse(data=analyze_funnel(await _dataset()).model_dump())
 
 
 @router.get("/analytics/forecast", response_model=ApiResponse)
 async def gmv_forecast():
-    return ApiResponse(data=forecast_gmv(_dataset(), horizon=7).model_dump())
+    return ApiResponse(data=forecast_gmv(await _dataset(), horizon=7).model_dump())
 
 
 @router.get("/customers", response_model=ApiResponse)
 async def customer_analysis():
-    return ApiResponse(data=analyze_rfm(_dataset()).model_dump())
+    return ApiResponse(data=analyze_rfm(await _dataset()).model_dump())
 
 
 @router.get("/campaigns/effect", response_model=ApiResponse)
 async def campaign_effect():
-    return ApiResponse(data=analyze_campaign_effect(_dataset()).model_dump())
+    return ApiResponse(data=analyze_campaign_effect(await _dataset()).model_dump())
+
+
+@router.get("/simulation/state", response_model=ApiResponse)
+async def simulation_state():
+    result = await _simulation_result()
+    data = result.state.model_dump(mode="json")
+    data["deltas"] = result.deltas
+    return ApiResponse(data=data)
+
+
+@router.post("/simulation/advance", response_model=ApiResponse)
+async def simulation_advance(request: SimulationTransitionRequest):
+    await _ensure_repository()
+    baseline = _loader.load_cached()
+    baseline_date = max(row.date for row in baseline.orders)
+    state = await _repository.get_simulation_state(baseline_date)
+    events = SimulationEngine.events_for_step(baseline, state.step + 1, state.seed)
+    try:
+        advanced = await _repository.advance_simulation(events, request.expected_version)
+    except VersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    result = SimulationEngine.apply(baseline, advanced.step, advanced.seed, advanced.version)
+    data = result.state.model_dump(mode="json")
+    data["deltas"] = result.deltas
+    return ApiResponse(data=data)
+
+
+@router.post("/simulation/reset", response_model=ApiResponse)
+async def simulation_reset(request: SimulationTransitionRequest):
+    await _ensure_repository()
+    baseline = _loader.load_cached()
+    baseline_date = max(row.date for row in baseline.orders)
+    try:
+        reset = await _repository.reset_simulation(baseline_date, request.expected_version)
+    except VersionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    result = SimulationEngine.apply(baseline, reset.step, reset.seed, reset.version)
+    data = result.state.model_dump(mode="json")
+    data["deltas"] = result.deltas
+    return ApiResponse(data=data)
 
 
 @router.post("/agent/analyze", response_model=ApiResponse)
@@ -122,7 +176,7 @@ async def analyze(request: AgentAnalyzeRequest):
         context = [{"role": item.role, "content": item.content} for item in session.messages]
     await _repository.append_message(session.id, "user", question)
     started = time.perf_counter()
-    analysis = await HybridEcommerceAgent(_dataset(), use_configured_planner=True).analyze(
+    analysis = await HybridEcommerceAgent(await _dataset(), use_configured_planner=True).analyze(
         question, session_id=session.id, user_id="demo-user", context=context,
     )
     latency_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -227,7 +281,7 @@ async def run_evaluation(online: bool = False):
     await _ensure_repository()
     raw = json.loads(Path("data/ecommerce/evaluation_cases.json").read_text(encoding="utf-8"))
     cases = [EvaluationCase.model_validate(item) for item in raw]
-    agent = HybridEcommerceAgent(_dataset(), use_configured_planner=online)
+    agent = HybridEcommerceAgent(await _dataset(), use_configured_planner=online)
 
     async def analyze_case(case: EvaluationCase):
         return (await agent.analyze(case.question)).model_dump()
@@ -242,7 +296,7 @@ async def run_evaluation(online: bool = False):
 
 @router.get("/campaigns/plan", response_model=ApiResponse)
 async def campaign_plan(goal: str = "大促增长"):
-    dataset = _dataset()
+    dataset = await _dataset()
     normalized_goal = goal.strip() or "大促增长"
     plan, trace = EcommerceTools(dataset).generate_campaign_plan(normalized_goal)
     plan["goal"] = normalized_goal
@@ -255,7 +309,7 @@ async def recommendations(status: str = ""):
     await _ensure_repository()
     items = await _repository.list_recommendations(status=status)
     if not items:
-        analysis = EcommerceAgent(_dataset()).analyze("昨天 GMV 为什么下降？")
+        analysis = EcommerceAgent(await _dataset()).analyze("昨天 GMV 为什么下降？")
         for action in analysis.recommendations:
             await _repository.create_recommendation(action.title, action.action_type, action.risk_level, action.reason, action.expected_impact, [item.model_dump() for item in action.evidence])
         items = await _repository.list_recommendations(status=status)
