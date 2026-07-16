@@ -11,6 +11,7 @@ from backend.schemas.common import ApiResponse
 
 router = APIRouter(prefix="/api/ecommerce", tags=["ecommerce-operations-agent"])
 _store = RecommendationStore()
+_loader = EcommerceDataLoader()
 
 
 class AgentAnalyzeRequest(BaseModel):
@@ -18,7 +19,7 @@ class AgentAnalyzeRequest(BaseModel):
 
 
 def _dataset():
-    return EcommerceDataLoader().load()
+    return _loader.load_cached()
 
 
 @router.get("/dashboard", response_model=ApiResponse)

@@ -26,6 +26,18 @@ T = TypeVar("T", bound=BaseModel)
 class EcommerceDataLoader:
     def __init__(self, root: Path | str = Path("data/ecommerce")):
         self.root = Path(root)
+        self._cached_signature: tuple[tuple[str, int, int], ...] | None = None
+        self._cached_dataset: EcommerceDataset | None = None
+
+    def load_cached(self) -> EcommerceDataset:
+        signature = tuple(
+            (name, (self.root / name).stat().st_mtime_ns, (self.root / name).stat().st_size)
+            for name in self.required_files()
+        )
+        if self._cached_dataset is None or signature != self._cached_signature:
+            self._cached_dataset = self.load()
+            self._cached_signature = signature
+        return self._cached_dataset
 
     def load(self) -> EcommerceDataset:
         missing = [name for name in self.required_files() if not (self.root / name).exists()]
