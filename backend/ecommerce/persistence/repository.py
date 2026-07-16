@@ -11,6 +11,7 @@ from backend.ecommerce.persistence.models import (
     ToolExecutionModel,
     EvaluationRunModel,
     SimulationStateModel,
+    AgentJobModel, AgentEventModel,
 )
 
 
@@ -184,3 +185,47 @@ class EcommerceRepository:
             item.version += 1
             await session.commit()
             return item
+
+    async def create_agent_job(self, run_id: str, workspace_id: str, session_id: str, idempotency_key: str, question: str = "") -> AgentJobModel:
+        async with self.database.sessions() as session:
+            existing = (await session.execute(select(AgentJobModel).where(AgentJobModel.idempotency_key == idempotency_key))).scalar_one_or_none()
+            if existing:
+                return existing
+            item = AgentJobModel(run_id=run_id, workspace_id=workspace_id, session_id=session_id, idempotency_key=idempotency_key, question=question)
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def get_agent_job(self, job_id: str, workspace_id: str) -> AgentJobModel | None:
+        async with self.database.sessions() as session:
+            return (await session.execute(select(AgentJobModel).where(AgentJobModel.id == job_id, AgentJobModel.workspace_id == workspace_id))).scalar_one_or_none()
+
+    async def cancel_agent_job(self, job_id: str, workspace_id: str) -> AgentJobModel | None:
+        async with self.database.sessions() as session:
+            item = (await session.execute(select(AgentJobModel).where(AgentJobModel.id == job_id, AgentJobModel.workspace_id == workspace_id))).scalar_one_or_none()
+            if item:
+                item.cancelled = True
+                item.status = "cancelled"
+                await session.commit()
+            return item
+
+    async def set_agent_job_status(self, job_id: str, status: str) -> AgentJobModel | None:
+        async with self.database.sessions() as session:
+            item = await session.get(AgentJobModel, job_id)
+            if item:
+                item.status = status
+                await session.commit()
+            return item
+
+    async def append_agent_event(self, job_id: str, event_type: str, payload: dict) -> AgentEventModel:
+        async with self.database.sessions() as session:
+            last = (await session.execute(select(AgentEventModel).where(AgentEventModel.job_id == job_id).order_by(AgentEventModel.sequence.desc()))).scalars().first()
+            item = AgentEventModel(job_id=job_id, sequence=(last.sequence + 1 if last else 1), event_type=event_type, payload=payload)
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def list_agent_events(self, job_id: str, after_sequence: int = 0) -> list[AgentEventModel]:
+        async with self.database.sessions() as session:
+            statement = select(AgentEventModel).where(AgentEventModel.job_id == job_id, AgentEventModel.sequence > after_sequence).order_by(AgentEventModel.sequence)
+            return list((await session.execute(statement)).scalars())
