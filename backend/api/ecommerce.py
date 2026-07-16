@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -9,6 +11,7 @@ from backend.ecommerce.metrics import build_dashboard
 from backend.ecommerce.hybrid_agent import HybridEcommerceAgent
 from backend.ecommerce.events import analysis_events
 from backend.ecommerce.persistence.repository import EcommerceRepository, VersionConflict
+from backend.ecommerce.observability import percentile
 from backend.ecommerce.segmentation import build_product_analysis
 from backend.ecommerce.tools import EcommerceTools
 from backend.schemas.common import ApiResponse
@@ -84,16 +87,25 @@ async def analyze(request: AgentAnalyzeRequest):
     else:
         context = [{"role": item.role, "content": item.content} for item in session.messages]
     await _repository.append_message(session.id, "user", question)
+    started = time.perf_counter()
     analysis = await HybridEcommerceAgent(_dataset(), use_configured_planner=True).analyze(
         question, session_id=session.id, user_id="demo-user", context=context,
     )
+    latency_ms = round((time.perf_counter() - started) * 1000, 2)
     analysis.session_id = session.id
     await _repository.append_message(session.id, "assistant", analysis.summary)
+    await _repository.create_run(
+        run_id=analysis.run_id, session_id=session.id, user_id="demo-user",
+        execution_mode=analysis.execution_mode, model=settings.LLM_MODEL if analysis.execution_mode == "llm" else "",
+        status="completed", fallback_reason=analysis.fallback_reason, total_latency_ms=latency_ms,
+    )
+    for trace in analysis.tool_trace:
+        await _repository.add_tool_execution(analysis.run_id, trace.tool_name, trace.input, trace.output_summary)
     for action in analysis.recommendations:
         persisted = await _repository.create_recommendation(
             title=action.title, action_type=action.action_type, risk_level=action.risk_level,
             reason=action.reason, expected_impact=action.expected_impact,
-            evidence=[item.model_dump() for item in action.evidence], run_id=None,
+            evidence=[item.model_dump() for item in action.evidence], run_id=analysis.run_id,
         )
         action.id = persisted.id
         action.version = persisted.version
@@ -119,6 +131,54 @@ async def session_detail(session_id: str):
     if item is None:
         raise HTTPException(status_code=404, detail="session not found")
     return ApiResponse(data=_session_data(item, include_messages=True))
+
+
+def _run_data(item) -> dict:
+    return {
+        "id": item.id, "session_id": item.session_id, "user_id": item.user_id,
+        "execution_mode": item.execution_mode, "model": item.model, "status": item.status,
+        "fallback_reason": item.fallback_reason, "total_latency_ms": item.total_latency_ms,
+        "prompt_tokens": item.prompt_tokens, "completion_tokens": item.completion_tokens,
+        "error": item.error, "created_at": item.created_at.isoformat(),
+    }
+
+
+@router.get("/runs", response_model=ApiResponse)
+async def runs(execution_mode: str = "", status: str = ""):
+    await _ensure_repository()
+    return ApiResponse(data=[_run_data(item) for item in await _repository.list_runs(execution_mode, status)])
+
+
+@router.get("/runs/summary", response_model=ApiResponse)
+async def runs_summary():
+    await _ensure_repository()
+    items = await _repository.list_runs()
+    total = len(items)
+    successful = sum(item.status == "completed" for item in items)
+    fallback = sum(item.execution_mode == "deterministic_fallback" for item in items)
+    latencies = [item.total_latency_ms for item in items]
+    return ApiResponse(data={
+        "total_runs": total,
+        "success_rate": round(successful / total * 100, 2) if total else 0,
+        "fallback_rate": round(fallback / total * 100, 2) if total else 0,
+        "average_latency_ms": round(sum(latencies) / total, 2) if total else 0,
+        "p95_latency_ms": percentile(latencies, 0.95),
+        "total_tokens": sum(item.prompt_tokens + item.completion_tokens for item in items),
+    })
+
+
+@router.get("/runs/{run_id}", response_model=ApiResponse)
+async def run_detail(run_id: str):
+    await _ensure_repository()
+    item = await _repository.get_run(run_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    data = _run_data(item)
+    data["tools"] = [
+        {"tool_name": tool.tool_name, "input": tool.input_data, "output_summary": tool.output_summary, "latency_ms": tool.latency_ms, "status": tool.status}
+        for tool in await _repository.list_tool_executions(run_id)
+    ]
+    return ApiResponse(data=data)
 
 
 @router.get("/campaigns/plan", response_model=ApiResponse)

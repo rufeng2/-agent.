@@ -4,9 +4,11 @@ from sqlalchemy.orm import selectinload
 from backend.ecommerce.persistence.database import EcommerceDatabase
 from backend.ecommerce.persistence.models import (
     AgentMessageModel,
+    AgentRunModel,
     AgentSessionModel,
     ApprovalRecordModel,
     RecommendationModel,
+    ToolExecutionModel,
 )
 
 
@@ -91,4 +93,42 @@ class EcommerceRepository:
             if status:
                 statement = statement.where(RecommendationModel.status == status)
             statement = statement.order_by(RecommendationModel.updated_at.desc())
+            return list((await session.execute(statement)).scalars())
+
+    async def create_run(self, run_id: str, session_id: str | None, user_id: str, execution_mode: str, model: str, status: str, fallback_reason: str, total_latency_ms: float, prompt_tokens: int = 0, completion_tokens: int = 0, error: str = "") -> AgentRunModel:
+        async with self.database.sessions() as session:
+            item = AgentRunModel(
+                id=run_id, session_id=session_id, user_id=user_id, execution_mode=execution_mode,
+                model=model, status=status, fallback_reason=fallback_reason,
+                total_latency_ms=total_latency_ms, prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens, error=error,
+            )
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def add_tool_execution(self, run_id: str, tool_name: str, input_data: dict, output_summary: str, latency_ms: float = 0, status: str = "completed") -> ToolExecutionModel:
+        async with self.database.sessions() as session:
+            item = ToolExecutionModel(run_id=run_id, tool_name=tool_name, input_data=input_data, output_summary=output_summary, latency_ms=latency_ms, status=status)
+            session.add(item)
+            await session.commit()
+            return item
+
+    async def list_runs(self, execution_mode: str = "", status: str = "") -> list[AgentRunModel]:
+        async with self.database.sessions() as session:
+            statement = select(AgentRunModel)
+            if execution_mode:
+                statement = statement.where(AgentRunModel.execution_mode == execution_mode)
+            if status:
+                statement = statement.where(AgentRunModel.status == status)
+            statement = statement.order_by(AgentRunModel.created_at.desc())
+            return list((await session.execute(statement)).scalars())
+
+    async def get_run(self, run_id: str) -> AgentRunModel | None:
+        async with self.database.sessions() as session:
+            return await session.get(AgentRunModel, run_id)
+
+    async def list_tool_executions(self, run_id: str) -> list[ToolExecutionModel]:
+        async with self.database.sessions() as session:
+            statement = select(ToolExecutionModel).where(ToolExecutionModel.run_id == run_id).order_by(ToolExecutionModel.created_at)
             return list((await session.execute(statement)).scalars())
