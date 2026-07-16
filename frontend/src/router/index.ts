@@ -16,24 +16,6 @@ const router = createRouter({
       meta: { title: "运营驾驶舱", requiresAuth: true },
     },
     {
-      path: "/operations-center",
-      name: "operations-center",
-      component: () => import("@/views/Ecommerce/OperationsCenter.vue"),
-      meta: { title: "运营任务中心", requiresAuth: true },
-    },
-    {
-      path: "/action-console",
-      name: "action-console",
-      component: () => import("@/views/Ecommerce/ActionConsole.vue"),
-      meta: { title: "智能执行台", requiresAuth: true },
-    },
-    {
-      path: "/team-automation",
-      name: "team-automation",
-      component: () => import("@/views/Ecommerce/TeamAutomation.vue"),
-      meta: { title: "团队与自动化", requiresAuth: true },
-    },
-    {
       path: "/agent",
       name: "agent",
       component: () => import("@/views/Ecommerce/ExecutionAgentWorkspace.vue"),
@@ -45,61 +27,7 @@ const router = createRouter({
       component: () => import("@/views/Ecommerce/Products.vue"),
       meta: { title: "商品分析", requiresAuth: true },
     },
-    {
-      path: "/customers",
-      name: "customers",
-      component: () => import("@/views/Ecommerce/Customers.vue"),
-      meta: { title: "客户分析", requiresAuth: true },
-    },
-    {
-      path: "/campaigns",
-      name: "campaigns",
-      component: () => import("@/views/Ecommerce/Campaigns.vue"),
-      meta: { title: "活动策略", requiresAuth: true },
-    },
-    {
-      path: "/growth-workflow",
-      name: "growth-workflow",
-      component: () => import("@/views/Ecommerce/GrowthWorkflow.vue"),
-      meta: { title: "跨境增长工作流", requiresAuth: true },
-    },
-    {
-      path: "/recommendations",
-      name: "recommendations",
-      component: () => import("@/views/Ecommerce/Recommendations.vue"),
-      meta: { title: "建议审批", requiresAuth: true },
-    },
-    {
-      path: "/runs",
-      name: "runs",
-      component: () => import("@/views/Ecommerce/Runs.vue"),
-      meta: { title: "Agent 运行中心", requiresAuth: true },
-    },
-    {
-      path: "/agent-evaluation",
-      name: "agent-evaluation",
-      component: () => import("@/views/Ecommerce/AgentEvaluation.vue"),
-      meta: { title: "电商 Agent 评测", requiresAuth: true },
-    },
-    {
-      path: "/knowledge",
-      name: "knowledge",
-      component: () => import("@/views/Documents.vue"),
-      meta: { title: "运营知识库", requiresAuth: true },
-    },
-    {
-      path: "/evaluation",
-      name: "evaluation",
-      component: () => import("@/views/Evaluation.vue"),
-      meta: { title: "Agent 分析质量评测", requiresAuth: true, requiresAdmin: true },
-    },
-    {
-      path: "/admin",
-      name: "admin",
-      component: () => import("@/views/Admin/Dashboard.vue"),
-      meta: { title: "运营管理后台", requiresAuth: true, requiresAdmin: true },
-    },
-    { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
+    { path: "/:pathMatch(.*)*", redirect: "/agent" },
   ],
 })
 

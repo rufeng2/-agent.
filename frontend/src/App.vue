@@ -15,13 +15,8 @@
       </div>
       <nav>
         <router-link to="/agent" title="执行型 Agent"><el-icon><ChatDotRound /></el-icon><span class="sidebar-copy">执行型 Agent</span></router-link>
-        <router-link to="/team-automation" title="团队与自动化"><el-icon><Timer /></el-icon><span class="sidebar-copy">团队与自动化</span></router-link>
         <router-link to="/dashboard" title="经营数据"><el-icon><DataBoard /></el-icon><span class="sidebar-copy">经营数据</span></router-link>
         <router-link to="/products" title="商品分析"><el-icon><Goods /></el-icon><span class="sidebar-copy">商品分析</span></router-link>
-        <router-link to="/runs" title="Agent 运行中心"><el-icon><Timer /></el-icon><span class="sidebar-copy">运行中心</span></router-link>
-        <router-link to="/knowledge" title="运营知识库"><el-icon><Files /></el-icon><span class="sidebar-copy">运营知识库</span></router-link>
-        <router-link v-if="auth.isAdmin" to="/evaluation" title="分析质量评测"><el-icon><DataAnalysis /></el-icon><span class="sidebar-copy">质量评测</span></router-link>
-        <router-link v-if="auth.isAdmin" to="/admin" title="运营管理后台"><el-icon><Setting /></el-icon><span class="sidebar-copy">运营管理</span></router-link>
       </nav>
       <div class="account">
         <div class="avatar">{{ auth.username.slice(0, 1).toUpperCase() }}</div>
@@ -30,8 +25,7 @@
           <el-button text circle title="账号菜单"><el-icon><MoreFilled /></el-icon></el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item @click="exportData">导出我的数据</el-dropdown-item>
-              <el-dropdown-item divided @click="logout">退出登录</el-dropdown-item>
+              <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -62,9 +56,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
-import { ElMessage } from "element-plus"
 import { useAuthStore } from "@/store/auth"
-import { operationsAPI } from "@/api/client"
 
 const route = useRoute()
 const router = useRouter()
@@ -112,17 +104,6 @@ function startResize(event: PointerEvent) {
 }
 
 onBeforeUnmount(() => document.body.classList.remove("resizing-sidebar"))
-
-async function exportData() {
-  const response = await operationsAPI.exportPrivacy()
-  const blob = new Blob([JSON.stringify(response.data.data, null, 2)], { type: "application/json" })
-  const link = document.createElement("a")
-  link.href = URL.createObjectURL(blob)
-  link.download = "ecommerce-agent-" + auth.username + ".json"
-  link.click()
-  URL.revokeObjectURL(link.href)
-  ElMessage.success("个人数据已导出")
-}
 
 function logout() {
   auth.logout()
