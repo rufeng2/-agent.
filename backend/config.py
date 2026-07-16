@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     DATABASE_URL: str = "postgresql+asyncpg://ragadmin:change_me_plz@localhost:5432/knowledge_rag"
+    ECOMMERCE_DATABASE_URL: str = "sqlite+aiosqlite:///./data/ecommerce_agent.db"
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     REDIS_URL: str = "redis://localhost:6379/0"
