@@ -50,7 +50,7 @@ def generate_dataset(output: Path, days: int = 90, seed: int = 20260716) -> None
             customer_id = customers[(day_index * len(PRODUCTS) + index) % len(customers)][0]
             orders.append((current.isoformat(), product_id, count, units, gmv, refund, customer_id))
             impressions = visitors * rng.randint(7, 12)
-            clicks = int(impressions * rng.uniform(0.07, 0.13))
+            clicks = max(visitors, int(impressions * rng.uniform(0.07, 0.13)))
             carts = min(visitors, int(visitors * rng.uniform(0.09, 0.18)))
             checkout = min(carts, int(carts * rng.uniform(0.62, 0.84)))
             refunded = min(count, int(refund > 0))

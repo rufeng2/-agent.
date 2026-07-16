@@ -1,5 +1,10 @@
 from backend.ecommerce.metrics import build_dashboard
-from backend.ecommerce.schemas import EcommerceDataset, ProductAnalysis, ProductRecord, ToolTraceStep
+from backend.ecommerce.campaign_effect import analyze_campaign_effect
+from backend.ecommerce.competitors import analyze_competitor_prices
+from backend.ecommerce.customers import analyze_rfm
+from backend.ecommerce.forecast import forecast_gmv as build_gmv_forecast
+from backend.ecommerce.funnel import analyze_funnel
+from backend.ecommerce.schemas import Evidence, EcommerceDataset, ProductAnalysis, ProductRecord, ToolResult, ToolTraceStep
 from backend.ecommerce.segmentation import build_product_analysis
 
 
@@ -43,6 +48,52 @@ class EcommerceTools:
             input={"sort": "gmv_desc", "signals": "abc,margin,conversion,inventory,review,roi"},
             output_summary=f"完成 {len(products)} 个商品分层，最高 GMV 商品为 {products[0].name}。",
         )
+
+    def analyze_conversion_funnel(self):
+        analysis = analyze_funnel(self.dataset)
+        summary = f"曝光到支付整体转化率为 {analysis.overall_conversion_rate}%。"
+        return ToolResult(
+            tool_name="analyze_conversion_funnel", input={"range": "all"},
+            metrics={"overall_conversion_rate": analysis.overall_conversion_rate, "stages": len(analysis.stages)},
+            evidence=[Evidence(label=stage.name, value=str(stage.value), baseline=f"上一步转化 {stage.conversion_from_previous}%") for stage in analysis.stages],
+            summary=summary,
+        ), ToolTraceStep(tool_name="analyze_conversion_funnel", step_title="分析转化漏斗", input={"range": "all"}, output_summary=summary)
+
+    def analyze_customer_rfm(self):
+        analysis = analyze_rfm(self.dataset)
+        summary = f"完成 {len(analysis.customers)} 位客户 RFM 分层，复购率 {analysis.repeat_purchase_rate}%。"
+        return ToolResult(
+            tool_name="analyze_customer_rfm", input={"range": "all"},
+            metrics={"customers": len(analysis.customers), "repeat_purchase_rate": analysis.repeat_purchase_rate, "average_ltv": analysis.average_ltv},
+            summary=summary,
+        ), ToolTraceStep(tool_name="analyze_customer_rfm", step_title="分析客户价值", input={"range": "all"}, output_summary=summary)
+
+    def analyze_campaign_effect(self):
+        analysis = analyze_campaign_effect(self.dataset)
+        summary = f"活动增量 GMV {analysis.incremental_gmv} 元，模拟 ROI {analysis.roi}。"
+        return ToolResult(
+            tool_name="analyze_campaign_effect", input={"range": "all"},
+            metrics={"campaign_count": analysis.campaign_count, "incremental_gmv": analysis.incremental_gmv, "roi": analysis.roi},
+            summary=summary, warnings=["模拟测算，不代表真实业务承诺"],
+        ), ToolTraceStep(tool_name="analyze_campaign_effect", step_title="复盘活动效果", input={"range": "all"}, output_summary=summary)
+
+    def analyze_competitor_price(self):
+        analysis = analyze_competitor_prices(self.dataset)
+        average_index = round(sum(item.price_index for item in analysis) / len(analysis), 2)
+        summary = f"当前商品平均价格竞争力指数为 {average_index}。"
+        return ToolResult(
+            tool_name="analyze_competitor_price", input={"date": "latest"},
+            metrics={"products": len(analysis), "average_price_index": average_index}, summary=summary,
+        ), ToolTraceStep(tool_name="analyze_competitor_price", step_title="分析竞品价格", input={"date": "latest"}, output_summary=summary)
+
+    def forecast_gmv(self):
+        analysis = build_gmv_forecast(self.dataset, horizon=7)
+        summary = f"已生成未来 {len(analysis.points)} 天 GMV 模拟预测。"
+        return ToolResult(
+            tool_name="forecast_gmv", input={"horizon": 7},
+            metrics={"days": len(analysis.points), "next_day_gmv": analysis.points[0].predicted_gmv},
+            summary=summary, warnings=["预测基于模拟历史数据"],
+        ), ToolTraceStep(tool_name="forecast_gmv", step_title="预测 GMV 趋势", input={"horizon": 7}, output_summary=summary)
 
     def generate_campaign_plan(self, goal: str = "大促增长"):
         normalized_goal = goal.strip() or "大促增长"

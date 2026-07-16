@@ -173,11 +173,77 @@ class ProductAnalysis(BaseModel):
     risk_tags: list[str]
 
 
+class FunnelStage(BaseModel):
+    name: str
+    value: int
+    conversion_from_previous: float
+
+
+class FunnelAnalysis(BaseModel):
+    stages: list[FunnelStage]
+    overall_conversion_rate: float
+
+
+class RfmCustomer(BaseModel):
+    customer_id: str
+    recency_days: int
+    frequency: int
+    monetary: float
+    segment: str
+
+
+class RfmAnalysis(BaseModel):
+    customers: list[RfmCustomer]
+    segment_counts: dict[str, int]
+    repeat_purchase_rate: float
+    average_ltv: float
+
+
+class CampaignEffect(BaseModel):
+    campaign_count: int
+    attributed_gmv: float
+    baseline_gmv: float
+    incremental_gmv: float
+    discount_cost: float
+    roi: float
+
+
+class CompetitorPriceAnalysis(BaseModel):
+    product_id: str
+    name: str
+    own_price: float
+    competitor_price: float
+    price_gap: float
+    price_index: float
+    competitor_promo: str
+
+
+class ForecastPoint(BaseModel):
+    date: str
+    predicted_gmv: float
+    lower: float
+    upper: float
+
+
+class GmvForecast(BaseModel):
+    method: str
+    points: list[ForecastPoint]
+
+
 class ToolTraceStep(BaseModel):
     tool_name: str
     step_title: str = ""
     input: dict[str, str | int | float | bool]
     output_summary: str
+
+
+class ToolResult(BaseModel):
+    tool_name: str
+    input: dict[str, str | int | float | bool]
+    metrics: dict[str, str | int | float]
+    evidence: list[Evidence] = []
+    summary: str
+    warnings: list[str] = []
 
 
 class RecommendedAction(BaseModel):
