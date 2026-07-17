@@ -92,6 +92,21 @@ test("follow-up resolves actions from the previous report", async ({ page }) => 
   await expect(page.getByRole("heading", { name: /便携榨汁杯.*小红书.*推广文案/ })).toBeVisible({ timeout: 30_000 })
 })
 
+test("autonomous goal clarifies contract and shows replan loop", async ({ page }) => {
+  await page.goto("/agent")
+  await page.locator(".command-input input").fill("自主提升便携榨汁杯转化率")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByText(/多少天内达成目标/)).toBeVisible()
+  await expect(page.getByText(/预算上限/)).toBeVisible()
+
+  await page.locator(".command-input input").fill("未来7天提升15%，预算1000元")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByRole("heading", { name: "自主运营闭环运行报告" })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText("Critic 反思与重规划")).toBeVisible()
+  await expect(page.getByText(/第 1 轮 · replan/)).toBeVisible()
+  await expect(page.getByText(/商品语义和用户偏好记忆/)).toBeVisible()
+})
+
 test("mobile execution workspace has no horizontal overflow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile")
   await page.goto("/agent")

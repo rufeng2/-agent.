@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from backend.config import settings
 from backend.ecommerce.competitors import analyze_competitor_prices
 from backend.ecommerce.conversation import OperationsConversationService
+from backend.ecommerce.autonomous_runtime import AutonomousOperationsRuntime
 from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.execution_graph import ExecutionPlanningError, LangGraphExecutionAgent
 from backend.ecommerce.forecast import forecast_gmv
@@ -162,6 +163,14 @@ async def conversation_detail(session_id: str, user: dict = Depends(get_current_
     if item is None or item.user_id != workspace_id:
         raise HTTPException(status_code=404, detail="会话不存在")
     return ApiResponse(data={"id": item.id, "title": item.title, "messages": [{"id": message.id, "role": message.role, "content": message.content, "created_at": message.created_at.isoformat()} for message in item.messages]})
+
+
+@router.post("/autonomous/tasks/{task_id}/resume", response_model=ApiResponse)
+async def resume_autonomous_task(task_id: str, user: dict = Depends(get_current_user)):
+    _require_operator(user)
+    workspace_id, operator = _identity(user)
+    result = await AutonomousOperationsRuntime(_repository, await _dataset()).resume(task_id, workspace_id, operator)
+    return ApiResponse(data=result.model_dump(mode="json"))
 
 
 @router.get("/dashboard", response_model=ApiResponse)

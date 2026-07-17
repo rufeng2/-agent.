@@ -100,3 +100,20 @@ async def test_selecting_previous_content_action_reuses_product_and_channel(tmp_
     assert selected.plan.product_id == "P003"
     assert selected.report["channel"] == "小红书"
     await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_autonomous_goal_clarifies_then_runs_closed_loop(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    service = OperationsConversationService(repository, EcommerceDataLoader().load_cached())
+    first = await service.send("自主提升便携榨汁杯转化率", "workspace-1", "alice")
+
+    completed = await service.send("未来7天提升15%，预算1000元", "workspace-1", "alice", first.session_id)
+
+    assert first.status == "needs_clarification"
+    assert completed.status == "completed"
+    assert completed.plan.intent == "autonomous_goal"
+    assert completed.report["autonomous_run"]["status"] == "succeeded"
+    assert completed.report["autonomous_run"]["reflections"][0]["decision"] == "replan"
+    await repository.dispose()

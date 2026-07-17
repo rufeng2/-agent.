@@ -7,6 +7,7 @@ from backend.ecommerce.intent_planner import IntentPlan, OperationsIntentPlanner
 from backend.ecommerce.persistence.repository import EcommerceRepository
 from backend.ecommerce.schemas import EcommerceDataset
 from backend.ecommerce.specialists import OperationsSpecialistTeam
+from backend.ecommerce.autonomous_runtime import AutonomousOperationsRuntime, GoalContractParser
 
 
 class ConversationReply(BaseModel):
@@ -25,6 +26,8 @@ class OperationsConversationService:
         self.planner = OperationsIntentPlanner(dataset)
         self.specialists = OperationsSpecialistTeam(dataset)
         self.execution_agent = execution_agent
+        self.goal_parser = GoalContractParser(dataset)
+        self.autonomous_runtime = AutonomousOperationsRuntime(repository, dataset)
 
     async def send(self, message: str, workspace_id: str, operator: str, session_id: str | None = None) -> ConversationReply:
         session = await self.repository.get_session(session_id) if session_id else None
@@ -49,6 +52,20 @@ class OperationsConversationService:
             plan = None
         if plan is None and state.get("pending_message"):
             effective_message = f"{state['pending_message']}；补充信息：{message}"
+        autonomous_request = state.get("pending_autonomous", False) or self._looks_autonomous(effective_message)
+        if plan is None and autonomous_request:
+            parsed_goal = self.goal_parser.parse(effective_message)
+            autonomous_plan = IntentPlan(intent="autonomous_goal", mode="autonomous", product_id=parsed_goal.contract.product_id if parsed_goal.contract else None, slots={"goal": parsed_goal.contract.model_dump() if parsed_goal.contract else {}}, missing_slots=parsed_goal.missing_fields, questions=parsed_goal.questions, confidence=0.98, reasoning="goal contract parser")
+            if parsed_goal.contract is None:
+                response = "\n".join(parsed_goal.questions)
+                await self.repository.update_session_summary(session.id, json.dumps({**state, "pending_message": effective_message, "pending_autonomous": True}, ensure_ascii=False))
+                await self.repository.append_message(session.id, "assistant", response)
+                return ConversationReply(status="needs_clarification", session_id=session.id, message=response, plan=autonomous_plan, questions=parsed_goal.questions)
+            result = await self.autonomous_runtime.run(parsed_goal.contract, workspace_id, operator)
+            report = self._autonomous_report(result.model_dump(mode="json"))
+            await self.repository.update_session_summary(session.id, json.dumps({"last_message": effective_message, "last_plan": autonomous_plan.model_dump(), "last_report": report}, ensure_ascii=False))
+            await self.repository.append_message(session.id, "assistant", json.dumps(report, ensure_ascii=False))
+            return ConversationReply(status="completed", session_id=session.id, message=report["summary"], plan=autonomous_plan, report=report)
         if plan is None:
             plan = self.planner.plan_with_rules(effective_message)
         if plan.missing_slots:
@@ -114,3 +131,22 @@ class OperationsConversationService:
             slots.setdefault("channel", previous.slots.get("channel", "通用电商"))
             return IntentPlan(intent="content_generation", mode="content", product_id=previous.product_id, slots=slots, confidence=0.98, reasoning="resolved from previous report action")
         return previous.model_copy(update={"slots": {**previous.slots, "selected_action": action, "selected_action_index": index}, "missing_slots": [], "questions": []})
+
+    @staticmethod
+    def _looks_autonomous(message: str) -> bool:
+        return any(word in message for word in ("自主", "自动优化", "闭环优化")) or (any(word in message for word in ("提升", "降低", "增长")) and any(word in message for word in ("未来", "预算", "目标")))
+
+    @staticmethod
+    def _autonomous_report(result: dict[str, Any]) -> dict[str, Any]:
+        evaluation = result.get("evaluation", {})
+        reflections = result.get("reflections", [])
+        return {
+            "title": "自主运营闭环运行报告",
+            "summary": f"自主 Agent 完成 {result['iteration']} 轮运行，状态 {result['status']}，累计沙箱成本 ¥{result['spent']}。",
+            "findings": [f"KPI：{evaluation.get('metric', '-')}", f"实际变化：{evaluation.get('actual_change_pct', 0)}% / 目标 {evaluation.get('target_change_pct', 0)}%", f"计划版本：v{result['plan']['version']}"],
+            "opportunities": [item["next_change"] for item in reflections] or ["当前目标已达到，无需继续重规划"],
+            "actions": ["检查每轮 Observation 和 Critique", "确认成功经验已写入情景记忆与 SOP 记忆"],
+            "evidence": [{"metric": "kpi_evaluation", "value": evaluation, "period": f"iteration_{result['iteration']}", "source": "autonomous_runtime", "sample_size": len(result.get("observations", []))}],
+            "generation_mode": "autonomous_loop",
+            "autonomous_run": result,
+        }

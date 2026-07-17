@@ -11,12 +11,13 @@ IntentName = Literal[
     "content_generation", "marketing_strategy", "marketing_campaign_create",
     "ad_optimization", "customer_operations", "price_update",
     "product_publish", "product_unpublish", "automation_rule",
+    "autonomous_goal",
 ]
 
 
 class IntentPlan(BaseModel):
     intent: IntentName
-    mode: Literal["analysis", "content", "mutation", "automation"]
+    mode: Literal["analysis", "content", "mutation", "automation", "autonomous"]
     product_id: str | None = None
     slots: dict[str, Any] = Field(default_factory=dict)
     missing_slots: list[str] = Field(default_factory=list)
