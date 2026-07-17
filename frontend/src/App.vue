@@ -56,6 +56,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import { ArrowLeft, ArrowRight, ChatDotRound, DataBoard, Goods, Menu, MoreFilled } from "@element-plus/icons-vue"
 import { useAuthStore } from "@/store/auth"
 
 const route = useRoute()

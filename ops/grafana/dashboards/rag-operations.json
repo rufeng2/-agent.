@@ -1,14 +1,14 @@
 {
-  "title": "Knowledge RAG Operations",
-  "uid": "knowledge-rag-ops",
+  "title": "Ecommerce Agent Operations",
+  "uid": "ecommerce-agent-ops",
   "schemaVersion": 39,
   "refresh": "30s",
   "time": {"from": "now-6h", "to": "now"},
   "panels": [
-    {"id": 1, "type": "timeseries", "title": "HTTP P95 latency", "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(rag_http_request_duration_seconds_bucket[5m])))"}], "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}},
-    {"id": 2, "type": "timeseries", "title": "RAG P95 TTFT", "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(rag_ttft_seconds_bucket[5m])))"}], "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}},
-    {"id": 3, "type": "timeseries", "title": "Cache outcomes", "targets": [{"expr": "sum by (cache, outcome) (rate(rag_cache_events_total[5m]))"}], "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}},
-    {"id": 4, "type": "timeseries", "title": "RAG stage P95", "targets": [{"expr": "histogram_quantile(0.95, sum by (le, stage) (rate(rag_stage_duration_seconds_bucket[5m])))"}], "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}},
-    {"id": 5, "type": "timeseries", "title": "Safety and reflection", "targets": [{"expr": "sum by (outcome) (rate(rag_reflection_events_total[5m]))"}, {"expr": "sum by (stage, outcome) (rate(rag_safety_events_total[5m]))"}], "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}}
+    {"id": 1, "type": "timeseries", "title": "HTTP P95 latency", "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(ecommerce_http_request_duration_seconds_bucket[5m])))"}], "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}},
+    {"id": 2, "type": "timeseries", "title": "Agent P95 TTFT", "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(ecommerce_ttft_seconds_bucket[5m])))"}], "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}},
+    {"id": 3, "type": "timeseries", "title": "Cache outcomes", "targets": [{"expr": "sum by (cache, outcome) (rate(ecommerce_cache_events_total[5m]))"}], "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}},
+    {"id": 4, "type": "timeseries", "title": "Agent stage P95", "targets": [{"expr": "histogram_quantile(0.95, sum by (le, stage) (rate(ecommerce_stage_duration_seconds_bucket[5m])))"}], "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}},
+    {"id": 5, "type": "timeseries", "title": "Safety and reflection", "targets": [{"expr": "sum by (outcome) (rate(ecommerce_reflection_events_total[5m]))"}, {"expr": "sum by (stage, outcome) (rate(ecommerce_safety_events_total[5m]))"}], "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}}
   ]
 }

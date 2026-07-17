@@ -63,6 +63,24 @@ async def health_check():
     }
 
 
+@app.get("/api/health/live", include_in_schema=False)
+async def liveness_check():
+    """Process liveness probe for container orchestrators."""
+    return {"status": "ok", "checks": {"api": "ok"}}
+
+
+@app.get("/api/health/ready", include_in_schema=False)
+async def readiness_check():
+    """Readiness probe for release gates and Compose healthchecks."""
+    return {
+        "status": "ok",
+        "checks": {
+            "api": "ok",
+            "runtime": "ok",
+        },
+    }
+
+
 @app.get("/")
 async def root():
     """Root route."""

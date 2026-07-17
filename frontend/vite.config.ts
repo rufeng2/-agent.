@@ -21,5 +21,20 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const has = (value: string) => id.indexOf(value) >= 0
+            if (has("node_modules/vue") || has("node_modules/vue-router") || has("node_modules/pinia") || has("node_modules/axios")) {
+              return "vue-vendor"
+            }
+            if (has("node_modules/@element-plus/icons-vue")) {
+              return "element-plus-icons"
+            }
+          },
+        },
+      },
+    },
   }
 })

@@ -15,8 +15,8 @@
 4. Run `python scripts/bootstrap_admin.py` only when no administrator exists.
 5. Start the versioned image using the production Compose overlay.
 6. Require HTTP 200 from `/api/health/live` and `/api/health/ready`.
-7. Run login, password rotation, document list, cache-hit RAG, cache-miss RAG, upload, and reindex smoke tests.
-8. Restore Nginx traffic and watch error rate, P95 TTFT, provider failures, and queue backlog for 30 minutes.
+7. Run login, password rotation, dashboard, product list, conversation, approval, MCP status, and rollback smoke tests.
+8. Restore Nginx traffic and watch error rate, P95 latency, MCP failures, approval conflicts, and rollback rate for 30 minutes.
 
 ## Rollback
 

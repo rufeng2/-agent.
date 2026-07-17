@@ -70,7 +70,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue"
-import { ElMessage } from "element-plus"
+import { ElMessage } from "element-plus/es/components/message/index"
 import { ecommerceAPI } from "@/api/client"
 
 const loading = ref(false)

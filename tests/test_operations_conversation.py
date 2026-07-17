@@ -2,6 +2,7 @@ import pytest
 
 from backend.ecommerce.conversation import OperationsConversationService
 from backend.ecommerce.data_loader import EcommerceDataLoader
+from backend.ecommerce.execution_graph import LangGraphExecutionAgent
 from backend.ecommerce.persistence.repository import EcommerceRepository
 
 
@@ -116,4 +117,98 @@ async def test_autonomous_goal_clarifies_then_runs_closed_loop(tmp_path):
     assert completed.plan.intent == "autonomous_goal"
     assert completed.report["autonomous_run"]["status"] == "succeeded"
     assert completed.report["autonomous_run"]["reflections"][0]["decision"] == "replan"
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["500", "500元", "日预算500"])
+async def test_campaign_budget_answer_fills_pending_slot_without_repeating_question(tmp_path, answer):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    service = OperationsConversationService(repository, EcommerceDataLoader().load_cached())
+    first = await service.send("给轻量跑步鞋创建新品冷启动推广活动", "workspace-1", "alice")
+
+    reply = await service.send(answer, "workspace-1", "alice", first.session_id)
+
+    assert first.status == "needs_clarification"
+    assert reply.status == "waiting_approval"
+    assert reply.plan.slots["daily_budget"] == 500
+    assert "预算是多少" not in reply.message
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_campaign_budget_clarification_reaches_execution_task(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    dataset = EcommerceDataLoader().load_cached()
+    execution_agent = LangGraphExecutionAgent(repository, dataset)
+    service = OperationsConversationService(repository, dataset, execution_agent)
+    first = await service.send("给轻量跑步鞋创建新品冷启动推广活动", "workspace-1", "alice")
+
+    reply = await service.send("500元", "workspace-1", "alice", first.session_id)
+    task = await repository.get_execution_task(reply.task["id"], "workspace-1")
+
+    assert reply.status == "waiting_approval"
+    assert task.state["parameters"]["daily_budget"] == 500
+    assert task.state["parameters"]["campaign"]["daily_budget"] == 500
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["便携榨汁杯", "P003"])
+async def test_product_answer_fills_pending_content_product_slot(tmp_path, answer):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    service = OperationsConversationService(repository, EcommerceDataLoader().load_cached())
+    first = await service.send("写一篇小红书推广文案", "workspace-1", "alice")
+
+    reply = await service.send(answer, "workspace-1", "alice", first.session_id)
+
+    assert first.plan.missing_slots == ["product_id"]
+    assert reply.status == "completed"
+    assert reply.plan.product_id == "P003"
+    assert "商品名称或商品编号" not in reply.message
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_complete_first_turn_copy_request_does_not_lazy_load_detached_session(tmp_path, monkeypatch):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    dataset = EcommerceDataLoader().load_cached()
+    execution_agent = LangGraphExecutionAgent(repository, dataset)
+
+    async def fake_generate_copy(_goal, product):
+        return {
+            "headline": f"{product['name']}推广文案",
+            "body": "基于已知商品事实生成的正文。",
+            "selling_points": ["轻巧便携", "日常使用", "清洁方便"],
+            "cta": "查看商品",
+            "channel": "小红书",
+            "hashtags": ["#便携生活"],
+            "generation_mode": "llm",
+        }
+
+    monkeypatch.setattr(execution_agent.supervisor, "generate_copy", fake_generate_copy)
+    service = OperationsConversationService(repository, dataset, execution_agent)
+
+    reply = await service.send("给便携榨汁杯做一个小红书推广文案", "workspace-1", "alice")
+
+    assert reply.status == "completed"
+    assert reply.report["headline"] == "便携榨汁杯推广文案"
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_price_answer_fills_pending_price_slot(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    service = OperationsConversationService(repository, EcommerceDataLoader().load_cached())
+    first = await service.send("调整轻量跑步鞋价格", "workspace-1", "alice")
+
+    reply = await service.send("269元", "workspace-1", "alice", first.session_id)
+
+    assert reply.status == "waiting_approval"
+    assert reply.plan.slots["new_price"] == 269
     await repository.dispose()

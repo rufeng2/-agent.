@@ -95,7 +95,7 @@ class ApprovalRecordModel(Base):
 
 
 class EvaluationRunModel(Base):
-    __tablename__ = "evaluation_runs"
+    __tablename__ = "ecommerce_evaluation_runs"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     mode: Mapped[str] = mapped_column(String(32))
     metrics: Mapped[dict] = mapped_column(JSON, default=dict)

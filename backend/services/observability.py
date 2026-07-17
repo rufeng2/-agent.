@@ -1,4 +1,4 @@
-"""Stage-level latency and outcome metrics for the RAG workflow."""
+"""Stage-level latency and outcome metrics for ecommerce Agent workflows."""
 from contextlib import contextmanager
 import time
 
@@ -6,15 +6,15 @@ from prometheus_client import Counter, Histogram
 
 
 RAG_STAGE_DURATION = Histogram(
-    "rag_stage_duration_seconds",
-    "Latency of individual RAG workflow stages",
+    "ecommerce_stage_duration_seconds",
+    "Latency of individual ecommerce Agent workflow stages",
     ["stage", "status"],
 )
-CACHE_EVENTS = Counter("rag_cache_events_total", "RAG cache outcomes", ["cache", "outcome"])
-REFLECTION_EVENTS = Counter("rag_reflection_events_total", "RAG reflection outcomes", ["outcome"])
-SAFETY_EVENTS = Counter("rag_safety_events_total", "RAG safety guard outcomes", ["stage", "outcome"])
-RAG_TTFT = Histogram("rag_ttft_seconds", "Time to first answer token", ["path"])
-DEPENDENCY_DEGRADATION = Counter("rag_dependency_degradation_total", "Dependency degradation decisions", ["dependency", "capability"])
+CACHE_EVENTS = Counter("ecommerce_cache_events_total", "Ecommerce Agent cache outcomes", ["cache", "outcome"])
+REFLECTION_EVENTS = Counter("ecommerce_reflection_events_total", "Ecommerce Agent reflection outcomes", ["outcome"])
+SAFETY_EVENTS = Counter("ecommerce_safety_events_total", "Ecommerce Agent safety guard outcomes", ["stage", "outcome"])
+RAG_TTFT = Histogram("ecommerce_ttft_seconds", "Time to first answer token", ["path"])
+DEPENDENCY_DEGRADATION = Counter("ecommerce_dependency_degradation_total", "Dependency degradation decisions", ["dependency", "capability"])
 
 
 class StageTimings:
@@ -45,7 +45,7 @@ class StageTimings:
         self.values[stage] = round(self.values.get(stage, 0.0) + elapsed, 4)
         RAG_STAGE_DURATION.labels(stage=stage, status=status).observe(elapsed)
 
-    def record_ttft(self, path: str = "rag") -> float:
+    def record_ttft(self, path: str = "ecommerce_agent") -> float:
         elapsed = time.perf_counter() - self.started
         if not self._ttft_recorded:
             self._ttft_recorded = True

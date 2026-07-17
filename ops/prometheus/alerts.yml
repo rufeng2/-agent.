@@ -1,33 +1,33 @@
 groups:
-  - name: knowledge-rag
+  - name: ecommerce-agent
     rules:
-      - alert: RagBackendDown
-        expr: up{job="knowledge-rag"} == 0
+      - alert: EcommerceAgentBackendDown
+        expr: up{job="ecommerce-agent"} == 0
         for: 2m
         labels: {severity: critical}
-        annotations: {summary: "Knowledge RAG backend is unavailable"}
-      - alert: RagHighErrorRate
-        expr: sum(rate(rag_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(rag_http_requests_total[5m])), 0.001) > 0.05
+        annotations: {summary: "Ecommerce Agent backend is unavailable"}
+      - alert: EcommerceAgentHighErrorRate
+        expr: sum(rate(ecommerce_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(ecommerce_http_requests_total[5m])), 0.001) > 0.05
         for: 5m
         labels: {severity: warning}
         annotations: {summary: "Backend 5xx rate exceeds 5%"}
-      - alert: RagHighP95Latency
-        expr: histogram_quantile(0.95, sum by (le) (rate(rag_http_request_duration_seconds_bucket[5m]))) > 10
+      - alert: EcommerceAgentHighP95Latency
+        expr: histogram_quantile(0.95, sum by (le) (rate(ecommerce_http_request_duration_seconds_bucket[5m]))) > 10
         for: 10m
         labels: {severity: warning}
         annotations: {summary: "Backend P95 latency exceeds 10 seconds"}
-      - alert: RagHighTTFT
-        expr: histogram_quantile(0.95, sum by (le) (rate(rag_ttft_seconds_bucket[5m]))) > 5
+      - alert: EcommerceAgentHighTTFT
+        expr: histogram_quantile(0.95, sum by (le) (rate(ecommerce_ttft_seconds_bucket[5m]))) > 5
         for: 10m
         labels: {severity: warning}
-        annotations: {summary: "RAG P95 time-to-first-token exceeds 5 seconds"}
-      - alert: RagCacheErrors
-        expr: sum(rate(rag_cache_events_total{outcome="error"}[5m])) > 0.1
+        annotations: {summary: "Ecommerce Agent P95 time-to-first-token exceeds 5 seconds"}
+      - alert: EcommerceAgentCacheErrors
+        expr: sum(rate(ecommerce_cache_events_total{outcome="error"}[5m])) > 0.1
         for: 5m
         labels: {severity: warning}
-        annotations: {summary: "RAG cache errors are sustained"}
-      - alert: RagReflectionRetrySpike
-        expr: sum(rate(rag_reflection_events_total{outcome="retry"}[10m])) > 0.2
+        annotations: {summary: "Ecommerce Agent cache errors are sustained"}
+      - alert: EcommerceAgentReflectionRetrySpike
+        expr: sum(rate(ecommerce_reflection_events_total{outcome="retry"}[10m])) > 0.2
         for: 10m
         labels: {severity: warning}
-        annotations: {summary: "RAG reflection retries are elevated"}
+        annotations: {summary: "Ecommerce Agent reflection retries are elevated"}

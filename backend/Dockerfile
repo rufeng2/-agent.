@@ -13,8 +13,7 @@ COPY backend/requirements.txt ./backend-requirements.txt
 RUN pip install --default-timeout=300 -i https://pypi.tuna.tsinghua.edu.cn/simple -r backend-requirements.txt
 
 COPY backend/requirements-langchain.txt ./requirements-langchain.txt
-COPY backend/wheels /wheels
-RUN pip install --no-index --find-links=/wheels -r requirements-langchain.txt
+RUN pip install --default-timeout=300 -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-langchain.txt
 
 # 复制源码（开发模式通过 volume 挂载）
 COPY backend ./backend

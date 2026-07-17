@@ -32,7 +32,7 @@ class OperationsIntentPlanner:
 
     def plan_with_rules(self, message: str) -> IntentPlan:
         text = message.strip()
-        product_id = self._match_product(text)
+        product_id = self.match_product(text)
         channel = next((item for item in ("小红书", "抖音", "淘宝", "京东", "Amazon", "微信") if item.lower() in text.lower()), None)
         days_match = re.search(r"(?:最近|近)?\s*(\d+)\s*天", text)
         days = int(days_match.group(1)) if days_match else 30
@@ -48,7 +48,7 @@ class OperationsIntentPlanner:
             return self._finish("product_unpublish", "mutation", product_id, slots, require_product=True)
         if "上架" in text:
             return self._finish("product_publish", "mutation", product_id, slots, require_product=True)
-        if any(word in text for word in ("调价", "调整价格", "价格调整", "改价", "降价", "涨价")):
+        if any(word in text for word in ("调价", "调整价格", "价格调整", "改价", "降价", "涨价")) or ("调整" in text and "价格" in text):
             match = re.search(r"(?:调整到|调到|改为|降到|涨到|至)\s*[¥￥]?\s*(\d+(?:\.\d+)?)", text)
             if match:
                 slots["new_price"] = float(match.group(1))
@@ -98,7 +98,7 @@ class OperationsIntentPlanner:
                 questions.append(prompts[slot])
         return IntentPlan(intent=intent, mode=mode, product_id=product_id, slots=slots, missing_slots=missing, questions=questions)
 
-    def _match_product(self, text: str) -> str | None:
+    def match_product(self, text: str) -> str | None:
         normalized = text.lower()
         matches = [item.product_id for item in self.dataset.products if item.product_id.lower() in normalized or item.name.lower() in normalized]
         return matches[0] if len(matches) == 1 else None

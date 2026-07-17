@@ -35,7 +35,7 @@ requires an ingress or service mesh.
 ## Verification gates
 
 Required before release: pytest, frontend build, Compose config validation,
-integration smoke test, evaluation baseline comparison, and Locust load profile.
+integration smoke test, ecommerce Agent evaluation baseline comparison, and Locust load profile.
 The project supplies the mechanisms; organization-specific SLOs, IdP credentials,
 alert receivers, legal retention periods, and disaster-recovery drills still need
 to be configured by the operator.

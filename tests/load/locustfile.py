@@ -1,11 +1,15 @@
+import os
+
 from locust import HttpUser, between, task
 
 
-class KnowledgeRagUser(HttpUser):
+class EcommerceAgentUser(HttpUser):
     wait_time = between(0.5, 2)
 
     def on_start(self):
-        response = self.client.post("/api/login", json={"username": "admin", "password": "123456"})
+        username = os.getenv("LOCUST_USERNAME", "admin")
+        password = os.getenv("LOCUST_PASSWORD", "admin123456")
+        response = self.client.post("/api/login", json={"username": username, "password": password})
         token = response.json().get("token", "")
         self.headers = {"Authorization": f"Bearer {token}"}
 
@@ -13,6 +17,14 @@ class KnowledgeRagUser(HttpUser):
     def health(self):
         self.client.get("/api/health")
 
+    @task(3)
+    def dashboard(self):
+        self.client.get("/api/ecommerce/dashboard", headers=self.headers)
+
+    @task(2)
+    def products(self):
+        self.client.get("/api/ecommerce/products", headers=self.headers)
+
     @task(1)
-    def documents(self):
-        self.client.get("/api/documents/list", headers=self.headers)
+    def mcp_status(self):
+        self.client.get("/api/ecommerce/mcp/status", headers=self.headers)

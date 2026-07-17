@@ -64,6 +64,19 @@ test("agent asks for missing channel then resumes the same conversation", async 
   await expect(page.getByRole("heading", { name: /便携榨汁杯.*小红书.*推广文案/ })).toBeVisible({ timeout: 30_000 })
 })
 
+test("agent fills a missing product from the next message", async ({ page }) => {
+  await page.goto("/agent")
+  await page.locator(".command-input input").fill("写一篇小红书推广文案")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByText(/商品名称或商品编号/)).toBeVisible({ timeout: 30_000 })
+
+  await page.locator(".command-input input").fill("便携榨汁杯")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+
+  await expect(page.getByRole("heading", { name: /便携榨汁杯.*小红书.*推广文案/ })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText(/商品名称或商品编号/)).toHaveCount(1)
+})
+
 test("competitor analysis returns evidence and never creates a campaign", async ({ page }) => {
   await page.goto("/agent")
   await page.locator(".command-input input").fill("给便携榨汁杯做一个小红书竞品分析")

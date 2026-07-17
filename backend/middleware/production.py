@@ -17,10 +17,14 @@ from backend.utils.logger import logger
 from backend.services.cache_service import cache_service
 from backend.security.production_config import password_rotation_allows
 
-REQUESTS = Counter("rag_http_requests_total", "HTTP requests", ["method", "path", "status"])
-LATENCY = Histogram("rag_http_request_duration_seconds", "HTTP request latency", ["method", "path"])
-ERRORS = Counter("rag_http_errors_total", "Unhandled HTTP errors", ["path"])
-EXPENSIVE_PATHS = ("/api/chat/send", "/api/documents/upload", "/api/evaluation/runs")
+REQUESTS = Counter("ecommerce_http_requests_total", "HTTP requests", ["method", "path", "status"])
+LATENCY = Histogram("ecommerce_http_request_duration_seconds", "HTTP request latency", ["method", "path"])
+ERRORS = Counter("ecommerce_http_errors_total", "Unhandled HTTP errors", ["path"])
+EXPENSIVE_PATHS = (
+    "/api/ecommerce/conversations/messages",
+    "/api/ecommerce/execution/tasks",
+    "/api/ecommerce/autonomous/tasks",
+)
 LOCAL_DEMO_FAIL_OPEN_PATHS = {"/api/login", "/api/register"}
 LOCAL_DEMO_FAIL_OPEN_PREFIXES = ("/api/ecommerce/",)
 _expensive = asyncio.Semaphore(settings.MAX_CONCURRENT_EXPENSIVE_REQUESTS)

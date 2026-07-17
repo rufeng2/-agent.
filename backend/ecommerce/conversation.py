@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -37,11 +38,17 @@ class OperationsConversationService:
             session = await self.repository.create_session(workspace_id, message[:80])
         state = self._state(session.summary)
         await self.repository.append_message(session.id, "user", message)
+        session = await self.repository.get_session(session.id)
+        if session is None:
+            raise RuntimeError("Conversation session disappeared after message persistence")
         effective_message = message
         contextual_plan = self._resolve_action_selection(message, state)
         if contextual_plan is not None:
             plan = contextual_plan
             effective_message = f"{state.get('last_message', '')}；执行建议：{state['pending_actions'][plan.slots['selected_action_index']]}"
+        elif pending_plan := self._resolve_pending_slots(message, state):
+            plan = pending_plan
+            effective_message = self._message_with_resolved_slots(state.get("pending_message", ""), plan)
         elif self._references_previous_actions(message) and state.get("last_report", {}).get("actions"):
             actions = state["last_report"]["actions"]
             response = "我记得上一份报告。请选择要执行的建议动作：\n" + "\n".join(f"{index + 1}. {action}" for index, action in enumerate(actions)) + "\n请回复具体编号，我会复用上一轮的商品、渠道和分析证据继续执行。"
@@ -109,10 +116,18 @@ class OperationsConversationService:
 
         if self.execution_agent is None:
             response = "执行参数已完整，等待进入审批工作流。"
+            await self.repository.update_session_summary(
+                session.id,
+                json.dumps({"last_message": effective_message, "last_plan": plan.model_dump()}, ensure_ascii=False),
+            )
             await self.repository.append_message(session.id, "assistant", response)
             return ConversationReply(status="waiting_approval", session_id=session.id, message=response, plan=plan)
         task = await self.execution_agent.create_task(effective_message, workspace_id, operator)
         response = "执行计划已生成，请核对参数并批准。"
+        await self.repository.update_session_summary(
+            session.id,
+            json.dumps({"last_message": effective_message, "last_plan": plan.model_dump()}, ensure_ascii=False),
+        )
         await self.repository.append_message(session.id, "assistant", response)
         return ConversationReply(status="waiting_approval", session_id=session.id, message=response, plan=plan, task={"id": task.id, "status": task.status, "version": task.version})
 
@@ -126,6 +141,45 @@ class OperationsConversationService:
     @staticmethod
     def _references_previous_actions(message: str) -> bool:
         return any(phrase in message for phrase in ("你的建议", "上述建议", "上面的建议", "刚才的建议", "这些动作", "建议动作", "这个方案", "刚才的方案"))
+
+    def _resolve_pending_slots(self, message: str, state: dict) -> IntentPlan | None:
+        """Interpret a short reply against the slot requested in the previous turn."""
+        payload = state.get("plan")
+        if not payload:
+            return None
+        previous = IntentPlan.model_validate(payload)
+        if len(previous.missing_slots) != 1:
+            return None
+
+        slot = previous.missing_slots[0]
+        slots = dict(previous.slots)
+        if slot in {"daily_budget", "new_price"}:
+            match = re.fullmatch(
+                r"\s*(?:(?:日预算|预算|价格|售价)(?:是|为|调整到|改为)?\s*)?[¥￥]?\s*(\d+(?:\.\d+)?)\s*(?:元)?\s*",
+                message,
+            )
+            if not match:
+                return None
+            slots[slot] = float(match.group(1))
+        elif slot == "product_id":
+            product_id = self.planner.match_product(message)
+            if not product_id:
+                return None
+            return previous.model_copy(
+                update={"product_id": product_id, "missing_slots": [], "questions": []}
+            )
+        else:
+            return None
+        return previous.model_copy(update={"slots": slots, "missing_slots": [], "questions": []})
+
+    @staticmethod
+    def _message_with_resolved_slots(pending_message: str, plan: IntentPlan) -> str:
+        details = []
+        if "daily_budget" in plan.slots:
+            details.append(f"日预算{plan.slots['daily_budget']:g}元")
+        if "new_price" in plan.slots:
+            details.append(f"调整到{plan.slots['new_price']:g}元")
+        return "；".join([pending_message, *details])
 
     @staticmethod
     def _resolve_action_selection(message: str, state: dict) -> IntentPlan | None:

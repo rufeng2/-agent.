@@ -9,6 +9,8 @@ class EcommerceDatabase:
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
 
     async def initialize(self) -> None:
+        if self.engine.url.get_backend_name() != "sqlite":
+            return
         async with self.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
 

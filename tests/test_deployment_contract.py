@@ -18,6 +18,12 @@ def test_production_image_runs_as_non_root():
     assert "--reload" not in dockerfile
 
 
+def test_dockerfile_does_not_require_untracked_local_wheels():
+    dockerfile = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY backend/wheels" not in dockerfile
+    assert "pip install --no-index" not in dockerfile
+
+
 def test_production_compose_has_no_reload_or_source_mount():
     compose = yaml.safe_load((ROOT / "docker-compose.production.yml").read_text(encoding="utf-8"))
     backend = compose["services"]["backend"]
@@ -56,3 +62,15 @@ def test_primary_compose_and_environment_use_ecommerce_names():
     assert "ecommerce-agent-backend" in compose_text + production
     assert "container_name: rag-" not in compose_text
     assert "ECOMMERCE_DATABASE_URL" in env
+
+
+def test_primary_compose_does_not_reference_missing_celery_module():
+    compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    celery_module = ROOT / "backend" / "tasks" / "celery_app.py"
+    assert "backend.tasks.celery_app" not in compose_text or celery_module.exists()
+
+
+def test_postgres_healthcheck_uses_configured_database_identity():
+    compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "pg_isready -U $${POSTGRES_USER" in compose_text
+    assert "-d $${POSTGRES_DB" in compose_text
