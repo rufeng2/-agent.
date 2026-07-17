@@ -1,4 +1,5 @@
 """Execution-first ecommerce API."""
+import asyncio
 from pathlib import Path
 import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -26,6 +27,8 @@ _repository = EcommerceRepository(settings.ECOMMERCE_DATABASE_URL)
 _repository_ready = False
 _execution_agent: LangGraphExecutionAgent | None = None
 _checkpoint_connection = None
+_repository_lock = asyncio.Lock()
+_runtime_lock = asyncio.Lock()
 
 
 def _identity(user: dict) -> tuple[str, str]:
@@ -58,9 +61,12 @@ class SimulationTransitionRequest(BaseModel):
 
 async def _ensure_repository() -> None:
     global _repository_ready
-    if not _repository_ready:
-        await _repository.initialize()
-        _repository_ready = True
+    if _repository_ready:
+        return
+    async with _repository_lock:
+        if not _repository_ready:
+            await _repository.initialize()
+            _repository_ready = True
 
 
 async def _simulation_result():
@@ -78,16 +84,19 @@ async def _dataset():
 async def _execution_runtime() -> LangGraphExecutionAgent:
     global _execution_agent, _checkpoint_connection
     await _ensure_repository()
-    if _execution_agent is None:
-        # MCP SDK stdio sessions own an AnyIO cancel scope and cannot be shared
-        # across FastAPI request tasks. Use an isolated session per tool call.
-        client = EcommerceMCPClient(_repository.url, persistent=False)
-        checkpoint_path = Path("data/langgraph_checkpoints.db")
-        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        _checkpoint_connection = await aiosqlite.connect(checkpoint_path)
-        checkpointer = AsyncSqliteSaver(_checkpoint_connection)
-        await checkpointer.setup()
-        _execution_agent = LangGraphExecutionAgent(_repository, await _dataset(), mcp_client=client, checkpointer=checkpointer)
+    if _execution_agent is not None:
+        return _execution_agent
+    async with _runtime_lock:
+        if _execution_agent is None:
+            # MCP SDK stdio sessions own an AnyIO cancel scope and cannot be shared
+            # across FastAPI request tasks. Use an isolated session per tool call.
+            client = EcommerceMCPClient(_repository.url, persistent=False)
+            checkpoint_path = Path("data/langgraph_checkpoints.db")
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            _checkpoint_connection = await aiosqlite.connect(checkpoint_path)
+            checkpointer = AsyncSqliteSaver(_checkpoint_connection)
+            await checkpointer.setup()
+            _execution_agent = LangGraphExecutionAgent(_repository, await _dataset(), mcp_client=client, checkpointer=checkpointer)
     return _execution_agent
 
 
