@@ -13,18 +13,18 @@
           <el-form label-position="top" @submit.prevent="submitLogin">
             <el-form-item label="用户名"><el-input v-model="login.username" size="large" :prefix-icon="User" autocomplete="username" /></el-form-item>
             <el-form-item label="密码"><el-input v-model="login.password" size="large" type="password" show-password :prefix-icon="Lock" autocomplete="current-password" @keyup.enter="submitLogin" /></el-form-item>
-            <el-button type="primary" size="large" class="full" :loading="loading" @click="submitLogin">登录</el-button>
+            <el-button native-type="submit" type="primary" size="large" class="full" :loading="loading">登录</el-button>
           </el-form>
         </el-tab-pane>
         <el-tab-pane label="注册账号" name="register">
           <el-form label-position="top" @submit.prevent="submitRegister">
             <el-form-item label="用户名"><el-input v-model="register.username" size="large" :prefix-icon="User" /></el-form-item>
             <el-form-item label="密码"><el-input v-model="register.password" size="large" type="password" show-password :prefix-icon="Lock" placeholder="至少 8 位" @keyup.enter="submitRegister" /></el-form-item>
-            <el-button type="primary" size="large" class="full" :loading="loading" @click="submitRegister">创建账号</el-button>
+            <el-button native-type="submit" type="primary" size="large" class="full" :loading="loading">创建账号</el-button>
           </el-form>
         </el-tab-pane>
       </el-tabs>
-      <footer><span class="status-dot"></span>运营分析服务已连接</footer>
+      <footer :class="{offline:!serviceReady}"><span class="status-dot"></span>{{ serviceReady?'运营执行服务已连接':'运营执行服务未连接' }}</footer>
     </section>
   </main>
 </template>
@@ -40,10 +40,12 @@ const router = useRouter()
 const auth = useAuthStore()
 const tab = ref("login")
 const loading = ref(false)
+const serviceReady = ref(false)
 const login = reactive({ username: "", password: "" })
 const register = reactive({ username: "", password: "" })
 
 onMounted(async () => {
+  try { serviceReady.value = (await fetch('/api/health')).ok } catch { serviceReady.value = false }
   const params = new URLSearchParams(location.search)
   const token = params.get("token")
   if (token) {
@@ -88,4 +90,5 @@ async function submitRegister() {
 
 <style scoped>
 .login-page{min-height:100%;display:grid;place-items:center;padding:24px;background:#eef2f6}.login-panel{width:min(420px,100%);background:#fff;border:1px solid #dfe5ec;border-radius:8px;padding:32px;box-shadow:0 18px 55px rgba(25,42,65,.1)}.product{display:flex;align-items:center;gap:12px;margin-bottom:24px}.product>span{display:grid;place-items:center;width:44px;height:44px;border-radius:8px;background:#2563eb;color:#fff;font-size:20px;font-weight:800}.product h1{font-size:22px;margin:0}.product p{margin:3px 0 0;color:#667085;font-size:13px}.full{width:100%}.enterprise p,footer{font-size:12px;color:#667085;text-align:center}.enterprise .el-button{margin-bottom:8px}footer{border-top:1px solid #edf0ee;margin-top:24px;padding-top:18px}
+footer.offline{color:#c33b42}footer.offline .status-dot{background:#c33b42}
 </style>
