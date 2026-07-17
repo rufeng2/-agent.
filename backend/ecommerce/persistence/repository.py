@@ -50,6 +50,15 @@ class EcommerceRepository:
             statement = select(AgentSessionModel).options(selectinload(AgentSessionModel.messages)).where(AgentSessionModel.id == session_id)
             return (await session.execute(statement)).scalar_one_or_none()
 
+    async def update_session_summary(self, session_id: str, summary: str) -> AgentSessionModel:
+        async with self.database.sessions() as session:
+            item = await session.get(AgentSessionModel, session_id)
+            if item is None:
+                raise KeyError(session_id)
+            item.summary = summary
+            await session.commit()
+            return item
+
     async def list_sessions(self, user_id: str) -> list[AgentSessionModel]:
         async with self.database.sessions() as session:
             statement = select(AgentSessionModel).where(AgentSessionModel.user_id == user_id).order_by(AgentSessionModel.updated_at.desc())

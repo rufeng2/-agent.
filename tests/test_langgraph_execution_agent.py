@@ -75,6 +75,23 @@ async def test_copy_request_routes_to_content_agent_and_delivers_copy(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_competitor_analysis_is_read_only_and_does_not_create_campaign(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    agent = LangGraphExecutionAgent(repository, EcommerceDataLoader().load_cached())
+
+    task = await agent.create_task("给便携榨汁杯做一个小红书竞品分析", "workspace-1", "operator")
+
+    assert task.status == "completed"
+    assert task.state["action_type"] == "competitive_analysis"
+    assert task.state["specialist"] == "competitor_agent"
+    assert task.result["analysis"]["price_comparison"]["competitor_price"] > 0
+    assert task.result["analysis"]["opportunities"]
+    assert "campaign" not in task.result
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
 async def test_task_resumes_from_database_after_runtime_restart(tmp_path):
     repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
     await repository.initialize()

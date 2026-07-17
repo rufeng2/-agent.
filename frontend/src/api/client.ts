@@ -35,6 +35,9 @@ export const authAPI = {
 }
 
 export const ecommerceAPI = {
+  sendConversationMessage: (message: string, session_id?: string) => client.post("/ecommerce/conversations/messages", { message, session_id }),
+  conversations: () => client.get("/ecommerce/conversations"),
+  conversation: (id: string) => client.get(`/ecommerce/conversations/${id}`),
   dashboard: () => client.get("/ecommerce/dashboard"),
   mcpStatus: () => client.get("/ecommerce/mcp/status"),
   executionTasks: () => client.get("/ecommerce/execution/tasks"),

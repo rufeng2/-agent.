@@ -47,14 +47,33 @@ test("copy request delivers copy instead of creating a campaign", async ({ page 
   await page.goto("/agent")
   await page.locator(".command-input input").fill("给便携榨汁杯做一个小红书推广文案")
   await page.getByRole("button", { name: "创建并运行" }).click()
-  await expect(page.getByText("等待人工批准")).toBeVisible({ timeout: 30_000 })
-  await page.getByRole("button", { name: "批准并执行" }).click()
-  await page.getByRole("button", { name: "批准并执行" }).last().click()
-
-  await expect(page.getByRole("heading", { name: "推广文案已生成" })).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator(".copy-result h4")).not.toBeEmpty()
-  await expect(page.getByText(/DeepSeek 生成|模板降级/)).toBeVisible()
+  await expect(page.getByRole("heading", { name: /便携榨汁杯.*推广文案/ })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText("分析报告")).toBeVisible()
+  await expect(page.getByText("等待人工批准")).toHaveCount(0)
   await expect(page.getByText("已创建推广活动")).toHaveCount(0)
+})
+
+test("agent asks for missing channel then resumes the same conversation", async ({ page }) => {
+  await page.goto("/agent")
+  await page.locator(".command-input input").fill("给便携榨汁杯写推广文案")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByText(/准备发布在哪个渠道/)).toBeVisible({ timeout: 30_000 })
+
+  await page.locator(".command-input input").fill("小红书，语气生活化")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByRole("heading", { name: /便携榨汁杯.*小红书.*推广文案/ })).toBeVisible({ timeout: 30_000 })
+})
+
+test("competitor analysis returns evidence and never creates a campaign", async ({ page }) => {
+  await page.goto("/agent")
+  await page.locator(".command-input input").fill("给便携榨汁杯做一个小红书竞品分析")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+
+  await expect(page.getByRole("heading", { name: /竞品分析/ })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText("建议动作")).toBeVisible()
+  await expect(page.getByText(/查看数据证据/)).toBeVisible()
+  await expect(page.getByText("已创建推广活动")).toHaveCount(0)
+  await expect(page.getByText("等待人工批准")).toHaveCount(0)
 })
 
 test("mobile execution workspace has no horizontal overflow", async ({ page }, testInfo) => {

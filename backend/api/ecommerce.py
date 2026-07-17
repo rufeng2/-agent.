@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from backend.config import settings
 from backend.ecommerce.competitors import analyze_competitor_prices
+from backend.ecommerce.conversation import OperationsConversationService
 from backend.ecommerce.data_loader import EcommerceDataLoader
 from backend.ecommerce.execution_graph import ExecutionPlanningError, LangGraphExecutionAgent
 from backend.ecommerce.forecast import forecast_gmv
@@ -57,6 +58,11 @@ class ExecutionApprovalRequest(BaseModel):
 
 class SimulationTransitionRequest(BaseModel):
     expected_version: int
+
+
+class ConversationMessageRequest(BaseModel):
+    message: str
+    session_id: str | None = None
 
 
 async def _ensure_repository() -> None:
@@ -124,6 +130,38 @@ def _task_data(item) -> dict:
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
     }
+
+
+@router.post("/conversations/messages", response_model=ApiResponse)
+async def conversation_message(request: ConversationMessageRequest, user: dict = Depends(get_current_user)):
+    message = request.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+    workspace_id, operator = _identity(user)
+    runtime = await _execution_runtime()
+    service = OperationsConversationService(_repository, await _dataset(), runtime)
+    reply = await service.send(message, workspace_id, operator, request.session_id)
+    data = reply.model_dump()
+    if reply.task:
+        item = await _repository.get_execution_task(reply.task["id"], workspace_id)
+        data["task"] = _task_data(item) if item else None
+    return ApiResponse(data=data)
+
+
+@router.get("/conversations", response_model=ApiResponse)
+async def conversations(user: dict = Depends(get_current_user)):
+    workspace_id, _operator = _identity(user)
+    items = await _repository.list_sessions(workspace_id)
+    return ApiResponse(data=[{"id": item.id, "title": item.title, "updated_at": item.updated_at.isoformat()} for item in items])
+
+
+@router.get("/conversations/{session_id}", response_model=ApiResponse)
+async def conversation_detail(session_id: str, user: dict = Depends(get_current_user)):
+    workspace_id, _operator = _identity(user)
+    item = await _repository.get_session(session_id)
+    if item is None or item.user_id != workspace_id:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return ApiResponse(data={"id": item.id, "title": item.title, "messages": [{"id": message.id, "role": message.role, "content": message.content, "created_at": message.created_at.isoformat()} for message in item.messages]})
 
 
 @router.get("/dashboard", response_model=ApiResponse)

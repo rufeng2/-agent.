@@ -6,20 +6,29 @@
     </header>
     <div class="conversation-shell">
       <aside class="session-list">
-        <div class="section-heading"><h2>会话</h2><el-button text circle title="刷新" @click="loadTasks"><el-icon><Refresh /></el-icon></el-button></div>
-        <el-button class="new-chat" @click="task=null;goal=''">新建会话</el-button>
-        <el-empty v-if="!tasks.length" description="暂无执行任务" />
-        <button v-for="item in tasks" :key="item.id" type="button" class="task-item" :class="{active:task?.id===item.id}" @click="task=item">
-          <span>{{ statusLabel(item.status) }}</span><strong>{{ item.goal }}</strong><small>{{ actionLabel(item.state?.action_type) }} · v{{ item.version }}</small>
+        <div class="section-heading"><h2>会话</h2><el-button text circle title="刷新" @click="loadConversations"><el-icon><Refresh /></el-icon></el-button></div>
+        <el-button class="new-chat" @click="newChat">新建会话</el-button>
+        <el-empty v-if="!conversations.length" description="暂无会话" />
+        <button v-for="item in conversations" :key="item.id" type="button" class="task-item" :class="{active:sessionId===item.id}" @click="openConversation(item.id)">
+          <span>历史会话</span><strong>{{ item.title }}</strong><small>{{ formatTime(item.updated_at) }}</small>
         </button>
       </aside>
       <main class="conversation-main">
         <div class="message-stream">
-        <div v-if="!task" class="welcome-message">
+        <div v-if="!messages.length && !task" class="welcome-message">
           <div class="assistant-avatar">AI</div><div><h2>需要我执行什么运营任务？</h2><p>可以生成推广文案、调整商品价格、上下架商品或创建营销活动。</p></div>
         </div>
-        <template v-else>
-          <div class="message user-message"><div class="message-body"><small>你</small><p>{{ task.goal }}</p></div></div>
+        <div v-for="(item,index) in messages" :key="index" class="message" :class="item.role==='user'?'user-message':'assistant-message'">
+          <div v-if="item.role==='assistant'" class="assistant-avatar">AI</div><div class="message-body"><small>{{ item.role==='user'?'你':'运营执行助手' }}</small><p>{{ item.content }}</p></div>
+        </div>
+        <section v-if="report" class="message assistant-message"><div class="assistant-avatar">AI</div><div class="message-body analysis-report">
+          <div class="receipt-heading"><div><span>分析报告</span><h3>{{ report.title }}</h3></div><el-tag type="success">{{ report.generation_mode }}</el-tag></div>
+          <p>{{ report.summary }}</p>
+          <div class="report-columns"><div><h4>关键发现</h4><ul><li v-for="item in report.findings" :key="item">{{ item }}</li></ul></div><div><h4>运营机会</h4><ul><li v-for="item in report.opportunities" :key="item">{{ item }}</li></ul></div></div>
+          <h4>建议动作</h4><ol><li v-for="item in report.actions" :key="item">{{ item }}</li></ol>
+          <details class="evidence-list"><summary>查看数据证据（{{ report.evidence?.length || 0 }}）</summary><div v-for="item in report.evidence" :key="`${item.metric}-${item.source}`"><strong>{{ item.metric }}</strong><span>{{ evidenceValue(item.value) }}</span><small>{{ item.source }} · {{ item.period }} · 样本 {{ item.sample_size }}</small></div></details>
+        </div></section>
+        <template v-if="task">
           <div class="message assistant-message"><div class="assistant-avatar">AI</div><div class="message-body">
             <div class="message-heading"><strong>已完成任务规划</strong><el-tag :type="statusType(task.status)" size="small">{{ statusLabel(task.status) }}</el-tag></div>
             <p v-if="task.state?.product">我识别到目标商品为 <b>{{ task.state.product.name }}（{{ task.state.product.product_id }}）</b>，将执行“{{ actionLabel(task.state.action_type) }}”。</p>
@@ -56,7 +65,7 @@
         <footer class="composer">
           <div class="examples"><button v-for="item in examples" :key="item" type="button" @click="goal=item">{{ item }}</button></div>
           <div class="command-input"><el-input v-model="goal" size="large" placeholder="输入运营任务，例如：给便携榨汁杯写一篇小红书推广文案" @keyup.enter="createTask" /><el-button type="primary" size="large" :loading="creating" @click="createTask">创建并运行</el-button></div>
-          <small>业务写操作会在执行前请求你的确认</small>
+          <small>{{ awaitingClarification?'请补充上面的问题，我会继续当前任务':'分析任务直接返回证据报告，业务写操作会在执行前请求确认' }}</small>
         </footer>
       </main>
     </div>
@@ -71,6 +80,7 @@ import { ecommerceAPI } from "@/api/client"
 
 const examples=["给便携榨汁杯做一个小红书推广文案","把轻量跑步鞋价格调整到 269 元","下架商品 P003","给轻量跑步鞋创建新品冷启动推广活动"]
 const goal=ref(examples[0]),tasks=ref<any[]>([]),task=ref<any>(null),creating=ref(false),executing=ref(false)
+const conversations=ref<any[]>([]),sessionId=ref<string>(),messages=ref<any[]>([]),report=ref<any>(null),awaitingClarification=ref(false)
 const mcpStatus=ref("checking")
 const message=(error:any)=>error?.response?.data?.detail||error?.message||"请求失败"
 const statusLabel=(value:string)=>({planning:"规划中",waiting_approval:"待审批",running:"执行中",completed:"已完成",failed:"失败",rolled_back:"已回滚"} as any)[value]||value
@@ -80,11 +90,16 @@ const eventTypeLabel=(value:string)=>({task_planned:"任务规划",dag_planned:"
 function parameterSummary(state:any){if(["price_update","composite"].includes(state.action_type)){const price=`价格从 ¥${state.parameters.old_price} 调整到 ¥${state.parameters.new_price}，幅度 ${state.parameters.change_pct}%`;return state.action_type==="composite"?`${price}；随后创建“${state.parameters.campaign.name}”推广活动`:price}if(state.action_type==="marketing_plan")return `创建“${state.parameters.campaign.name}”，日预算 ¥${state.parameters.campaign.daily_budget}`;if(state.action_type==="content_generation")return `审核“${state.parameters.copy.headline}”及正文、卖点和 CTA，通过后交付`;return `商品状态将改为 ${state.parameters.listing_status}`}
 function snapshot(value:any,type:string){return ["price_update","composite"].includes(type)?`¥${value.price} · 版本 ${value.catalog_version}`:`${value.listing_status==='listed'?'已上架':'已下架'} · 版本 ${value.catalog_version}`}
 async function loadTasks(){tasks.value=(await ecommerceAPI.executionTasks()).data.data;if(task.value)task.value=tasks.value.find((item:any)=>item.id===task.value.id)||task.value}
+async function loadConversations(){conversations.value=(await ecommerceAPI.conversations()).data.data}
+async function openConversation(id:string){const data=(await ecommerceAPI.conversation(id)).data.data;sessionId.value=id;task.value=null;report.value=null;messages.value=data.messages.map((item:any)=>{if(item.role==='assistant'){try{const parsed=JSON.parse(item.content);if(parsed.evidence){report.value=parsed;return null}}catch{}}return {role:item.role,content:item.content}}).filter(Boolean)}
+function newChat(){sessionId.value=undefined;messages.value=[];report.value=null;task.value=null;awaitingClarification.value=false;goal.value=''}
 async function loadMcpStatus(){for(let attempt=0;attempt<2;attempt++){try{mcpStatus.value=(await ecommerceAPI.mcpStatus()).data.data.status;return}catch{if(!attempt)await new Promise(resolve=>setTimeout(resolve,800))}}mcpStatus.value="unavailable"}
-async function createTask(){if(!goal.value.trim())return;creating.value=true;try{task.value=(await ecommerceAPI.createExecutionTask(goal.value)).data.data;await loadTasks();ElMessage.success("任务已运行到审批断点")}catch(error:any){ElMessage.error(message(error))}finally{creating.value=false}}
+async function createTask(){const input=goal.value.trim();if(!input)return;creating.value=true;messages.value.push({role:'user',content:input});goal.value='';try{const reply=(await ecommerceAPI.sendConversationMessage(input,sessionId.value)).data.data;sessionId.value=reply.session_id;messages.value.push({role:'assistant',content:reply.message});awaitingClarification.value=reply.status==='needs_clarification';report.value=reply.report&&Object.keys(reply.report).length?reply.report:null;task.value=reply.task||null;await Promise.all([loadConversations(),loadTasks()]);if(reply.status==='waiting_approval')ElMessage.success("执行计划已生成，请审批")}catch(error:any){messages.value.push({role:'assistant',content:message(error)});ElMessage.error(message(error))}finally{creating.value=false}}
 async function approve(){await ElMessageBox.confirm("批准后将立即修改模拟业务系统，是否继续？","执行确认",{type:"warning",confirmButtonText:"批准并执行"});executing.value=true;try{task.value=(await ecommerceAPI.approveExecutionTask(task.value.id,task.value.version,"已核对执行参数")).data.data;await loadTasks();ElMessage.success("任务执行完成")}catch(error:any){ElMessage.error(message(error))}finally{executing.value=false}}
 async function rollback(){await ElMessageBox.confirm("将业务状态恢复到本任务执行前，是否继续？","回滚确认",{type:"warning"});executing.value=true;try{task.value=(await ecommerceAPI.rollbackExecutionTask(task.value.id,task.value.version)).data.data;await loadTasks();ElMessage.success("变更已回滚")}catch(error:any){ElMessage.error(message(error))}finally{executing.value=false}}
-onMounted(()=>Promise.all([loadTasks(),loadMcpStatus()]))
+function formatTime(value:string){return new Date(value).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})}
+function evidenceValue(value:any){return typeof value==='object'?JSON.stringify(value):String(value)}
+onMounted(()=>Promise.all([loadTasks(),loadMcpStatus(),loadConversations()]))
 </script>
 
 <style scoped>
@@ -93,6 +108,7 @@ onMounted(()=>Promise.all([loadTasks(),loadMcpStatus()]))
 .dag-steps{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.dag-steps strong{padding:7px 9px;border:1px solid #cce3d2;background:#fff;color:#166534;font-size:12px}
 .copy-result{margin:14px 0;padding:16px;border:1px solid #cce3d2;background:#fff}.copy-meta{display:flex;align-items:center;justify-content:space-between;gap:12px}.copy-result h4{margin:14px 0 8px;font-size:20px}.copy-result p{color:var(--ink-muted);line-height:1.8;white-space:pre-wrap}.copy-result ul{padding-left:20px;line-height:1.9}.copy-cta{display:inline-block;margin:8px 0;color:#166534}.copy-result small{display:block;color:var(--ink-muted);line-height:1.7}
 .assistant-page{display:flex;flex-direction:column;height:100%;min-height:0;background:#fff}.assistant-header{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:76px;padding:14px 24px;border-bottom:1px solid var(--border)}.assistant-header h1{margin:0;font-size:20px}.assistant-header p{margin:4px 0 0;color:var(--ink-muted);font-size:12px}.runtime-tags{display:flex;gap:8px}.conversation-shell{display:grid;grid-template-columns:260px minmax(0,1fr);flex:1;min-height:0}.session-list{overflow:auto;padding:16px 12px;background:#f7f9f8;border-right:1px solid var(--border)}.new-chat{width:100%;margin:10px 0 4px}.conversation-main{display:flex;min-width:0;min-height:0;flex-direction:column;background:#fff}.message-stream{flex:1;overflow:auto;padding:28px max(28px,calc((100% - 840px)/2)) 40px}.welcome-message,.message{display:flex;gap:12px;margin-bottom:22px}.welcome-message{align-items:flex-start;padding-top:8vh}.welcome-message h2{margin:2px 0 6px;font-size:20px}.welcome-message p{margin:0;color:var(--ink-muted)}.assistant-avatar{display:grid;flex:0 0 34px;width:34px;height:34px;place-items:center;border-radius:50%;background:#17201c;color:#fff;font-size:11px;font-weight:700}.message-body{min-width:0;max-width:760px}.user-message{justify-content:flex-end}.user-message .message-body{padding:11px 15px;border-radius:8px 2px 8px 8px;background:#edf4ff}.user-message small{color:#47627f}.user-message p{margin:4px 0 0;line-height:1.65}.assistant-message .message-body{flex:1;padding:2px 0}.message-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.message-body>p{line-height:1.7;color:#495650}.plan-facts{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.plan-facts span{padding:5px 8px;border:1px solid var(--border);border-radius:4px;color:var(--ink-muted);font-size:12px}.agent-details{margin-top:12px;border-top:1px solid var(--border)}.agent-details summary{padding:11px 0;color:#2563eb;cursor:pointer;font-size:12px}.agent-timeline article{padding:10px 0}.approval-gate,.receipt{max-width:760px;margin:0;padding:16px;border:1px solid #ead9a8;border-left:4px solid #f59e0b;border-radius:5px;background:#fffbeb}.receipt{border-color:#cce3d2;border-left-color:#16a34a;background:#f4faf6}.approval-gate{display:flex;align-items:center;justify-content:space-between;gap:18px}.approval-gate h3{font-size:14px}.composer{padding:10px max(24px,calc((100% - 840px)/2)) 14px;background:#fff;border-top:1px solid var(--border);box-shadow:0 -8px 20px rgba(24,32,29,.04)}.composer .examples{margin:0 0 8px;overflow:hidden;flex-wrap:nowrap}.composer .examples button{flex:0 0 auto;padding:5px 8px;font-size:11px}.composer>small{display:block;margin-top:6px;color:var(--ink-muted);text-align:center;font-size:11px}.task-error{max-width:760px;margin-left:46px}.session-list .task-item{background:transparent}.session-list .task-item.active{background:#fff}
+.analysis-report{width:100%;padding:18px;border:1px solid var(--border);border-left:4px solid #2563eb;border-radius:5px;background:#f8fafc}.analysis-report h3{margin:4px 0 0}.analysis-report h4{margin:16px 0 7px;font-size:13px}.analysis-report ul,.analysis-report ol{margin:0;padding-left:20px;line-height:1.8}.report-columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.evidence-list{margin-top:16px;border-top:1px solid var(--border)}.evidence-list summary{padding:12px 0;color:#2563eb;cursor:pointer}.evidence-list>div{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:10px;padding:8px 0;border-top:1px solid #edf0ee}.evidence-list small{color:var(--ink-muted)}
 @media(max-width:900px){.conversation-shell{grid-template-columns:210px minmax(0,1fr)}.message-stream{padding-right:20px;padding-left:20px}.composer{padding-right:20px;padding-left:20px}}
-@media(max-width:700px){.assistant-header{min-height:66px;padding:10px 14px}.assistant-header p{display:none}.conversation-shell{display:block;min-height:0}.session-list{display:flex;overflow-x:auto;height:72px;padding:8px;border-right:0;border-bottom:1px solid var(--border);gap:8px}.session-list .section-heading,.session-list .new-chat,.session-list .el-empty{display:none}.session-list .task-item{flex:0 0 190px;margin:0;padding:8px}.session-list .task-item span,.session-list .task-item small{display:none}.message-stream{padding:18px 14px 28px}.composer{padding:8px 12px 10px}.composer .examples{display:none}.command-input{grid-template-columns:minmax(0,1fr) auto}.command-input .el-button{padding:8px 12px}.approval-gate{align-items:flex-start;flex-direction:column}.approval-gate .el-button{width:100%}.assistant-avatar{flex-basis:30px;width:30px;height:30px}.task-error{margin-left:42px}}
+@media(max-width:700px){.assistant-header{min-height:66px;padding:10px 14px}.assistant-header p{display:none}.conversation-shell{display:block;min-height:0}.session-list{display:flex;overflow-x:auto;height:72px;padding:8px;border-right:0;border-bottom:1px solid var(--border);gap:8px}.session-list .section-heading,.session-list .new-chat,.session-list .el-empty{display:none}.session-list .task-item{flex:0 0 190px;margin:0;padding:8px}.session-list .task-item span,.session-list .task-item small{display:none}.message-stream{padding:18px 14px 28px}.composer{padding:8px 12px 10px}.composer .examples{display:none}.command-input{grid-template-columns:minmax(0,1fr) auto}.command-input .el-button{padding:8px 12px}.approval-gate{align-items:flex-start;flex-direction:column}.approval-gate .el-button{width:100%}.assistant-avatar{flex-basis:30px;width:30px;height:30px}.task-error{margin-left:42px}.report-columns{grid-template-columns:1fr}.evidence-list>div{grid-template-columns:1fr}.evidence-list span{overflow-wrap:anywhere}}
 </style>

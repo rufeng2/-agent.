@@ -10,6 +10,8 @@ from backend.ecommerce.persistence.repository import EcommerceRepository, Versio
 from backend.ecommerce.schemas import EcommerceDataset
 from backend.ecommerce.mcp_client import EcommerceMCPClient
 from backend.ecommerce.supervisor import StructuredSupervisor
+from backend.ecommerce.intent_planner import OperationsIntentPlanner
+from backend.ecommerce.specialists import OperationsSpecialistTeam
 
 
 class ExecutionPlanningError(ValueError):
@@ -48,6 +50,8 @@ class LangGraphExecutionAgent:
         self.dataset = dataset
         self.mcp = mcp_client or EcommerceMCPClient(repository.url)
         self.supervisor = StructuredSupervisor(dataset)
+        self.intent_planner = OperationsIntentPlanner(dataset)
+        self.specialists = OperationsSpecialistTeam(dataset)
         self.checkpointer = checkpointer or InMemorySaver()
         self.graph = self._build_graph()
 
@@ -59,18 +63,20 @@ class LangGraphExecutionAgent:
         builder.add_node("listing_agent", self._listing_agent)
         builder.add_node("marketing_agent", self._marketing_agent)
         builder.add_node("content_agent", self._content_agent)
+        builder.add_node("competitor_agent", self._competitor_agent)
         builder.add_node("risk_agent", self._risk_agent)
         builder.add_node("approval_gate", self._approval_gate)
         builder.add_node("tool_executor", self._tool_executor)
         builder.set_entry_point("supervisor")
         builder.add_edge("supervisor", "catalog_agent")
         builder.add_conditional_edges("catalog_agent", lambda state: state["specialist"], {
-            "pricing_agent": "pricing_agent", "listing_agent": "listing_agent", "marketing_agent": "marketing_agent", "content_agent": "content_agent",
+            "pricing_agent": "pricing_agent", "listing_agent": "listing_agent", "marketing_agent": "marketing_agent", "content_agent": "content_agent", "competitor_agent": "competitor_agent",
         })
         builder.add_edge("pricing_agent", "risk_agent")
         builder.add_edge("listing_agent", "risk_agent")
         builder.add_edge("marketing_agent", "risk_agent")
         builder.add_edge("content_agent", "risk_agent")
+        builder.add_edge("competitor_agent", "tool_executor")
         builder.add_edge("risk_agent", "approval_gate")
         builder.add_edge("approval_gate", "tool_executor")
         builder.add_edge("tool_executor", END)
@@ -86,7 +92,8 @@ class LangGraphExecutionAgent:
         try:
             output = await self.graph.ainvoke(initial, config={"configurable": {"thread_id": task.id}})
             state = await self._current_state(task.id, output)
-            return await self.repository.update_execution_task(task.id, workspace_id, status="waiting_approval", state=state, events=state.get("events", []))
+            status = "completed" if state.get("status") == "completed" else "waiting_approval"
+            return await self.repository.update_execution_task(task.id, workspace_id, status=status, state=state, events=state.get("events", []), result=state.get("result", {}))
         except Exception as exc:
             await self.repository.update_execution_task(task.id, workspace_id, status="failed", error=str(exc))
             raise
@@ -172,6 +179,20 @@ class LangGraphExecutionAgent:
     async def _supervisor(self, state: ExecutionState):
         goal = state["goal"].strip()
         is_composite = any(word in goal for word in ("并创建", "同时创建", "并且创建")) and any(word in goal for word in ("调价", "价格", "降到", "涨到")) and any(word in goal for word in ("营销", "推广", "活动", "广告"))
+        operations_plan = self.intent_planner.plan_with_rules(goal)
+        if operations_plan.intent == "competitive_analysis" and not operations_plan.missing_slots:
+            product = next(item for item in self.dataset.products if item.product_id == operations_plan.product_id)
+            events = [*state.get("events", []), _event("Supervisor", "task_planned", "识别为只读竞品分析，分派给 Competitor Agent，不创建活动")]
+            return {"action_type": "competitive_analysis", "specialist": "competitor_agent", "product_id": product.product_id, "parameters": operations_plan.slots, "events": events}
+        if operations_plan.mode == "mutation" and not operations_plan.missing_slots and not is_composite:
+            product = next(item for item in self.dataset.products if item.product_id == operations_plan.product_id)
+            action_type = {"marketing_campaign_create": "marketing_plan"}.get(operations_plan.intent, operations_plan.intent)
+            specialist = {"price_update": "pricing_agent", "product_publish": "listing_agent", "product_unpublish": "listing_agent", "marketing_plan": "marketing_agent"}[action_type]
+            parameters = dict(operations_plan.slots)
+            if action_type == "marketing_plan":
+                parameters["goal"] = parameters.get("objective", "增长")
+            events = [*state.get("events", []), _event("Supervisor", "task_planned", f"结构化业务规划识别为 {action_type}，分派给 {specialist}")]
+            return {"action_type": action_type, "specialist": specialist, "product_id": product.product_id, "parameters": parameters, "events": events}
         planner_mode, fallback = "llm", ""
         try:
             llm_plan = await self.supervisor.plan(goal, state.get("context", []))
@@ -236,7 +257,7 @@ class LangGraphExecutionAgent:
         return {"parameters": {**state["parameters"], "listing_status": target}, "events": [*state["events"], _event("Listing Agent", "change_prepared", f"准备将商品状态改为 {target}")]}
 
     async def _marketing_agent(self, state: ExecutionState):
-        budget = round(max(100, min(500, float(state["product"]["price"]) * 1.05)), 2)
+        budget = float(state["parameters"].get("daily_budget") or round(max(100, min(500, float(state["product"]["price"]) * 1.05)), 2))
         campaign = {"name": f"{state['product']['name']}-{state['parameters']['goal']}", "daily_budget": budget, "target_acos_pct": 35, "channels": ["搜索广告", "商品广告"], "optimization_rule": "连续3天无转化则降价20%"}
         return {"parameters": {**state["parameters"], "campaign": campaign}, "events": [*state["events"], _event("Marketing Agent", "campaign_prepared", f"生成日预算 {budget} 元的推广活动")]}
 
@@ -259,6 +280,11 @@ class LangGraphExecutionAgent:
         mode = copy["generation_mode"]
         return {"parameters": {**state["parameters"], "copy": copy}, "events": [*state["events"], _event("Content Agent", "copy_generated", f"使用 {mode} 模式生成 {copy['channel']} 推广文案")]}
 
+    async def _competitor_agent(self, state: ExecutionState):
+        plan = self.intent_planner.plan_with_rules(state["goal"])
+        report = self.specialists.run(plan)
+        return {"parameters": {**state["parameters"], "analysis": report}, "events": [*state["events"], _event("Competitor Agent", "analysis_completed", f"读取 {len(report['evidence'])} 组证据完成竞品分析")]}
+
     async def _risk_agent(self, state: ExecutionState):
         risk = "high" if state["action_type"] in {"price_update", "product_publish", "product_unpublish", "composite"} else "medium"
         reason = "该操作会修改商品交易状态，必须人工审批" if risk == "high" else "文案发布或营销预算执行前需要人工确认"
@@ -277,6 +303,9 @@ class LangGraphExecutionAgent:
     async def _tool_executor(self, state: ExecutionState):
         before = dict(state["product"])
         action_type = state["action_type"]
+        if action_type == "competitive_analysis":
+            result = {"task_id": state["task_id"], "status": "completed", "environment": "sandbox", "action_type": action_type, "analysis": state["parameters"]["analysis"]}
+            return {"status": "completed", "result": result, "events": [*state["events"], _event("Evidence Critic", "report_delivered", "证据字段完整，竞品分析报告已交付，未执行任何写操作")]}
         if action_type == "content_generation":
             result = {"task_id": state["task_id"], "status": "completed", "environment": "sandbox", "action_type": action_type, "product": before, "copy": state["parameters"]["copy"]}
             return {"status": "completed", "result": result, "events": [*state["events"], _event("Tool Executor", "content_delivered", "推广文案已生成并交付，未创建广告活动或产生预算")]}
