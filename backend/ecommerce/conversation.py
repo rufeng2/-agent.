@@ -8,6 +8,7 @@ from backend.ecommerce.persistence.repository import EcommerceRepository
 from backend.ecommerce.schemas import EcommerceDataset
 from backend.ecommerce.specialists import OperationsSpecialistTeam
 from backend.ecommerce.autonomous_runtime import AutonomousOperationsRuntime, GoalContractParser
+from backend.ecommerce.context_engineering import ContextPacket, OperationsContextBuilder
 
 
 class ConversationReply(BaseModel):
@@ -28,6 +29,7 @@ class OperationsConversationService:
         self.execution_agent = execution_agent
         self.goal_parser = GoalContractParser(dataset)
         self.autonomous_runtime = AutonomousOperationsRuntime(repository, dataset)
+        self.context_builder = OperationsContextBuilder(max_tokens=4000)
 
     async def send(self, message: str, workspace_id: str, operator: str, session_id: str | None = None) -> ConversationReply:
         session = await self.repository.get_session(session_id) if session_id else None
@@ -78,8 +80,18 @@ class OperationsConversationService:
             report = self.specialists.run(plan)
             if plan.intent == "content_generation" and self.execution_agent is not None:
                 product = await self.execution_agent.mcp.call_tool("get_product", {"product_id": plan.product_id})
+                stored_memories = await self.repository.list_agent_memories(workspace_id)
+                context = self.context_builder.build(
+                    query=effective_message,
+                    policies=["不得虚构商品功效、认证、折扣或竞品事实", "业务写操作必须经过审批"],
+                    task_state={"intent": plan.intent, "product_id": plan.product_id, "channel": plan.slots.get("channel", "")},
+                    evidence=[ContextPacket(json.dumps(item, ensure_ascii=False), "evidence", 1, [str(item.get("metric", "")), str(plan.product_id)]) for item in report.get("evidence", [])],
+                    memories=[ContextPacket(json.dumps(item.value, ensure_ascii=False), "memory", 2, [item.memory_key, item.agent, str(plan.product_id)]) for item in stored_memories],
+                    history=[item.content for item in session.messages[-10:]],
+                )
+                report["context_stats"] = context.stats | {"used_tokens": context.used_tokens, "available_tokens": context.available_tokens}
                 try:
-                    copy = await self.execution_agent.supervisor.generate_copy(effective_message, product)
+                    copy = await self.execution_agent.supervisor.generate_copy(f"{effective_message}\n\n{context.text}", product)
                     report.update({"headline": copy["headline"], "body": copy["body"], "selling_points": copy["selling_points"], "actions": [copy["cta"], *report["actions"]], "generation_mode": "llm", "model": copy.get("model", "")})
                 except Exception as exc:
                     report["fallback_reason"] = type(exc).__name__

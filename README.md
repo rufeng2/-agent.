@@ -64,6 +64,17 @@ Agent：生成动态 DAG，运行沙箱实验，评价 KPI；首轮未达标时�
 
 自主实验的 KPI 变化来自项目内沙箱模拟器，用于验证 Agent 闭环，不代表真实平台的因果实验结果。
 
+## HelloAgents 工程模式
+
+项目参考 [HelloAgents](https://github.com/jjyaoao/HelloAgents) 的工程实践，并按电商领域约束完成以下适配：
+
+- GSSC 上下文管线与 token 预算，替代简单字符截断。
+- Agent 工具能力注册、只读/沙箱/业务写入分级和审批范围过滤。
+- Critic 对目标进展、证据、安全和成本效率进行量化评分。
+- 统一运行 Trace，记录步骤、错误、重规划、模型和工具事件。
+
+完整采用与取舍记录见 `docs/HELLOAGENTS_ADOPTION.md`。项目没有替换已有 LangGraph、MCP、ToolResponse、熔断和 SQL 持久化，也没有让通用 ReAct Agent 绕过审批直接持有业务写工具。
+
 ## Agent 职责
 
 | Agent | 职责 |

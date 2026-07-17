@@ -12,6 +12,7 @@ from backend.ecommerce.mcp_client import EcommerceMCPClient
 from backend.ecommerce.supervisor import StructuredSupervisor
 from backend.ecommerce.intent_planner import OperationsIntentPlanner
 from backend.ecommerce.specialists import OperationsSpecialistTeam
+from backend.ecommerce.capability_registry import OperationsCapabilityRegistry
 
 
 class ExecutionPlanningError(ValueError):
@@ -52,6 +53,7 @@ class LangGraphExecutionAgent:
         self.supervisor = StructuredSupervisor(dataset)
         self.intent_planner = OperationsIntentPlanner(dataset)
         self.specialists = OperationsSpecialistTeam(dataset)
+        self.capabilities = OperationsCapabilityRegistry.default()
         self.checkpointer = checkpointer or InMemorySaver()
         self.graph = self._build_graph()
 
@@ -311,10 +313,13 @@ class LangGraphExecutionAgent:
             return {"status": "completed", "result": result, "events": [*state["events"], _event("Tool Executor", "content_delivered", "推广文案已生成并交付，未创建广告活动或产生预算")]}
         if action_type == "composite":
             completed_steps = []
+            approval_scope = {"product_id": state["product_id"], "actions": ["price_update", "marketing_plan"]}
+            self.capabilities.authorize("Tool Executor", "write_product_price", mode="write", approval_scope=approval_scope)
             price_response = await self.mcp.call_tool("update_product_price", {"product_id": state["product_id"], "new_price": float(state["parameters"]["new_price"]), "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})
             completed_steps.append({"id": "price", "status": "completed", "result": price_response})
             campaign = state["parameters"]["campaign"]
             try:
+                self.capabilities.authorize("Tool Executor", "create_campaign", mode="write", approval_scope=approval_scope)
                 campaign_response = await self.mcp.call_tool("create_marketing_campaign", {"product_id": state["product_id"], "name": campaign["name"], "daily_budget": campaign["daily_budget"], "target_acos_pct": campaign["target_acos_pct"], "approved_task_id": state["task_id"]})
                 completed_steps.append({"id": "campaign", "status": "completed", "result": campaign_response})
             except Exception:
@@ -325,15 +330,18 @@ class LangGraphExecutionAgent:
             return {"status": "completed", "result": result, "events": [*state["events"], _event("Tool Executor", "dag_completed", "复合任务 DAG 全部步骤执行成功")]}
         if action_type == "price_update":
             tool_name = "update_product_price"
+            self.capabilities.authorize("Tool Executor", "write_product_price", mode="write", approval_scope={"product_id": state["product_id"], "actions": ["price_update"]})
             response = await self.mcp.call_tool(tool_name, {"product_id": state["product_id"], "new_price": float(state["parameters"]["new_price"]), "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})
             after = response["after"]
         elif action_type in {"product_publish", "product_unpublish"}:
             tool_name = "set_product_listing"
+            self.capabilities.authorize("Tool Executor", "write_listing_status", mode="write", approval_scope={"product_id": state["product_id"], "actions": ["listing_update"]})
             response = await self.mcp.call_tool(tool_name, {"product_id": state["product_id"], "listing_status": state["parameters"]["listing_status"], "expected_version": int(before["catalog_version"]), "approved_task_id": state["task_id"]})
             after = response["after"]
         else:
             tool_name = "create_marketing_campaign"
             campaign = state["parameters"]["campaign"]
+            self.capabilities.authorize("Tool Executor", "create_campaign", mode="write", approval_scope={"product_id": state["product_id"], "actions": ["marketing_plan"]})
             response = await self.mcp.call_tool(tool_name, {"product_id": state["product_id"], "name": campaign["name"], "daily_budget": campaign["daily_budget"], "target_acos_pct": campaign["target_acos_pct"], "approved_task_id": state["task_id"]})
             after = before
         result = {"task_id": state["task_id"], "status": "completed", "environment": "sandbox", "action_type": action_type, "before": before, "after": after, "parameters": state["parameters"], "mcp": {"server": "ecommerce-operations", "transport": "stdio", "tool": tool_name}}

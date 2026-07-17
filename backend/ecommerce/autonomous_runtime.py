@@ -9,6 +9,9 @@ from backend.ecommerce.operations_tools import SandboxOperationsTools
 from backend.ecommerce.persistence.repository import EcommerceRepository
 from backend.ecommerce.schemas import EcommerceDataset
 from backend.ecommerce.specialists import OperationsSpecialistTeam
+from backend.ecommerce.capability_registry import CapabilityDenied, OperationsCapabilityRegistry
+from backend.ecommerce.operation_trace import OperationTrace
+from backend.ecommerce.reflection_critic import OperationsReflectionCritic
 
 
 class GoalContract(BaseModel):
@@ -54,6 +57,8 @@ class AutonomousRunResult(BaseModel):
     spent: float = 0
     stop_reason: str = ""
     memories_used: list[str] = Field(default_factory=list)
+    trace: list[dict[str, Any]] = Field(default_factory=list)
+    trace_stats: dict[str, Any] = Field(default_factory=dict)
 
 
 class GoalContractParser:
@@ -114,15 +119,21 @@ class AutonomousOperationsRuntime:
         self.specialists = OperationsSpecialistTeam(dataset)
         self.planner = DynamicOperationsPlanner()
         self.tool_runner = tool_runner or self._run_sandbox_tool
+        self.capabilities = OperationsCapabilityRegistry.default()
+        self.critic = OperationsReflectionCritic()
 
     async def run(self, goal: GoalContract, workspace_id: str, operator: str, task_id: str | None = None) -> AutonomousRunResult:
         task = await self.repository.get_execution_task(task_id, workspace_id) if task_id else await self.repository.create_execution_task(workspace_id, operator, goal.objective)
         if task is None:
             raise KeyError(task_id)
+        trace = OperationTrace(task.id)
+        trace.emit("run_started", payload={"goal": goal.model_dump(), "operator": operator})
         signature = f"{goal.metric}:{goal.product_id}"
         memories = await self.repository.list_agent_memories(workspace_id, "procedural")
         recalled = next((item for item in memories if item.memory_key == signature and item.source == "memory_consolidator" and item.value.get("evaluation", {}).get("achieved") is True), None)
         memories_used = [signature] if recalled else []
+        if recalled:
+            trace.emit("memory_recalled", payload={"memory_key": signature, "source": recalled.source})
         start_version = int(recalled.value.get("successful_plan_version", 0)) + 1 if recalled else 1
         plan = self.planner.build(goal, start_version)
         observations: list[dict[str, Any]] = []
@@ -132,37 +143,47 @@ class AutonomousOperationsRuntime:
         for iteration in range(1, goal.max_iterations + 1):
             state = {"iteration": iteration, "goal": goal.model_dump(), "observations": observations, "spent": spent}
             for step in plan.steps:
+                trace.emit("step_started", iteration=iteration, step=step.id, agent=step.agent, payload={"tool": step.tool, "mode": step.mode})
                 try:
+                    self.capabilities.authorize(step.agent, step.tool, mode=step.mode)
                     output = await self.tool_runner(step, state)
                 except Exception as exc:
-                    result = AutonomousRunResult(task_id=task.id, status="failed", iteration=iteration, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, stop_reason=f"tool_error:{step.id}", memories_used=memories_used)
+                    trace.emit("error", iteration=iteration, step=step.id, agent=step.agent, payload={"error_type": type(exc).__name__, "message": str(exc)})
+                    result = AutonomousRunResult(task_id=task.id, status="failed", iteration=iteration, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, stop_reason=f"tool_error:{step.id}", memories_used=memories_used, trace=trace.events, trace_stats=trace.stats())
                     await self._persist(task.id, workspace_id, result, error=str(exc))
                     return result
                 cost = float(output.get("cost", 0))
                 if spent + cost > goal.budget_limit:
-                    result = AutonomousRunResult(task_id=task.id, status="stopped", iteration=iteration, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, stop_reason="budget_limit_exceeded", memories_used=memories_used)
+                    trace.emit("run_stopped", iteration=iteration, step=step.id, payload={"reason": "budget_limit_exceeded"})
+                    result = AutonomousRunResult(task_id=task.id, status="stopped", iteration=iteration, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, stop_reason="budget_limit_exceeded", memories_used=memories_used, trace=trace.events, trace_stats=trace.stats())
                     await self._persist(task.id, workspace_id, result)
                     return result
                 spent += cost
                 step.status = "completed"
                 observation = {"iteration": iteration, "step_id": step.id, "agent": step.agent, "output": output, "at": datetime.now(timezone.utc).isoformat()}
                 observations.append(observation)
+                trace.emit("step_completed", iteration=iteration, step=step.id, agent=step.agent, payload={"cost": cost})
                 state["observations"] = observations
                 state["spent"] = spent
                 if step.id == "evaluate":
                     evaluation = self._evaluate(goal, output)
                 await self._checkpoint(task.id, workspace_id, goal, plan, iteration, observations, reflections, evaluation, spent, memories_used)
-            if evaluation.get("achieved"):
-                result = AutonomousRunResult(task_id=task.id, status="succeeded", iteration=iteration, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, memories_used=memories_used)
+            reflection = self.critic.review(goal, evaluation=evaluation, observations=observations, spent=spent, iteration=iteration)
+            if reflection["decision"] == "accept":
+                trace.emit("run_succeeded", iteration=iteration, payload={"evaluation": evaluation, "critic": reflection})
+                result = AutonomousRunResult(task_id=task.id, status="succeeded", iteration=iteration, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, memories_used=memories_used, trace=trace.events, trace_stats=trace.stats())
                 await self._persist(task.id, workspace_id, result)
                 await self._consolidate_memory(workspace_id, result)
                 return result
-            reflection = self._reflect(iteration, evaluation, observations)
             reflections.append(reflection)
+            trace.emit("reflection", iteration=iteration, payload=reflection)
+            if reflection["decision"] == "stop":
+                break
             if iteration < goal.max_iterations:
                 plan = self.planner.replan(plan, reflection)
                 continue
-        result = AutonomousRunResult(task_id=task.id, status="stopped", iteration=goal.max_iterations, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, stop_reason="max_iterations_reached", memories_used=memories_used)
+        trace.emit("run_stopped", iteration=goal.max_iterations, payload={"reason": "max_iterations_reached"})
+        result = AutonomousRunResult(task_id=task.id, status="stopped", iteration=goal.max_iterations, plan=plan, observations=observations, reflections=reflections, evaluation=evaluation, spent=spent, stop_reason="max_iterations_reached", memories_used=memories_used, trace=trace.events, trace_stats=trace.stats())
         await self._persist(task.id, workspace_id, result)
         return result
 
@@ -195,11 +216,6 @@ class AutonomousOperationsRuntime:
         baseline, current = float(output.get("baseline", 0)), float(output.get("current", 0))
         actual_change = (current - baseline) / baseline * 100 if baseline else 0
         return {"metric": goal.metric, "baseline": baseline, "current": current, "target_change_pct": goal.target_change_pct, "actual_change_pct": round(actual_change, 2), "achieved": actual_change + 1e-9 >= goal.target_change_pct}
-
-    @staticmethod
-    def _reflect(iteration: int, evaluation: dict[str, Any], observations: list[dict[str, Any]]) -> dict[str, Any]:
-        gap = round(float(evaluation.get("target_change_pct", 0)) - float(evaluation.get("actual_change_pct", 0)), 2)
-        return {"iteration": iteration, "decision": "replan", "reason": f"目标尚差 {gap} 个百分点", "evidence_steps": [item["step_id"] for item in observations if item["iteration"] == iteration], "next_change": "调整内容变体并重新运行沙箱实验"}
 
     async def _persist(self, task_id: str, workspace_id: str, result: AutonomousRunResult, error: str = "") -> None:
         status = "completed" if result.status == "succeeded" else result.status

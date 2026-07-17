@@ -52,6 +52,9 @@ async def test_runtime_replans_until_kpi_is_reached_and_writes_memory(tmp_path):
     assert result.iteration == 2
     assert result.evaluation["achieved"] is True
     assert result.reflections[0]["decision"] == "replan"
+    assert result.trace[0]["event"] == "run_started"
+    assert {item["event"] for item in result.trace} >= {"step_started", "step_completed", "reflection", "run_succeeded"}
+    assert result.trace_stats["steps"] == 10
     memories = await repository.list_agent_memories("workspace-1")
     assert {item.agent for item in memories} >= {"episodic", "procedural"}
     await repository.dispose()
