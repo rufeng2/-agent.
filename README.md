@@ -4,6 +4,88 @@
 
 > 项目使用可复现的模拟电商数据和沙箱业务系统，不连接淘宝、京东、Amazon 等真实平台。
 
+## 项目定位
+
+这个项目不是单轮问答机器人，而是一个“能分析、能规划、能审批、能执行、能回滚”的电商运营 Agent 系统。它模拟了真实电商团队里的几类工作：
+
+- 运营人员用自然语言提出目标，例如分析 GMV 下滑、优化广告 ACOS、生成小红书文案、调整商品价格、上架/下架商品或创建推广活动。
+- 系统先判断这是只读分析、内容生成还是业务写操作，再把任务交给合适的专业 Agent。
+- 只读任务会输出带证据的数据报告；写操作必须经过风险判断和人工审批。
+- 审批通过后，Tool Executor 通过 MCP Server 修改沙箱业务状态，并记录工具回执、任务事件和可回滚快照。
+
+项目重点展示的是执行型 Agent 的工程闭环：意图识别、上下文管理、专业 Agent 分工、审批中断恢复、工具协议隔离、持久化状态、多租户权限和可观测性。
+
+## 架构总览
+
+```mermaid
+flowchart LR
+    U["运营用户"] --> FE["Vue 3 前端<br/>Agent 工作台 / 看板 / 商品页"]
+    FE --> API["FastAPI<br/>Auth / Ecommerce API / Metrics"]
+
+    API --> CONV["Conversation Service<br/>多轮澄清与会话恢复"]
+    API --> RT["LangGraph Execution Agent<br/>任务图与检查点"]
+    API --> DATA["Sandbox Dataset<br/>商品 / 订单 / 广告 / 客户 / 竞品"]
+
+    CONV --> PLAN["Intent Planner<br/>意图、槽位、缺失参数"]
+    PLAN --> RT
+
+    RT --> SUP["Supervisor"]
+    SUP --> CAT["Catalog Agent"]
+    CAT --> SPEC["Pricing / Listing / Marketing / Content / Competitor Agents"]
+    SPEC --> RISK["Risk Agent"]
+    RISK --> GATE["Approval Gate<br/>LangGraph interrupt"]
+    GATE --> EXEC["Tool Executor"]
+
+    EXEC --> MCP["MCP Client<br/>超时 / 熔断 / 指标"]
+    MCP --> SERVER["ecommerce-operations MCP Server"]
+    SERVER --> REPO["SQL Repository<br/>任务 / 审批 / 商品状态 / 活动 / 事件"]
+
+    RT --> REPO
+    API --> REPO
+    API --> OBS["/metrics<br/>Prometheus / Grafana"]
+```
+
+核心分层可以这样理解：
+
+| 层级 | 作用 | 主要代码 |
+|---|---|---|
+| 前端交互层 | 登录、会话、任务创建、审批、执行轨迹、经营看板和商品分析 | `frontend/src/views/Ecommerce/*`、`frontend/src/api/client.ts` |
+| API 层 | 暴露电商 Agent、会话、审批、回滚、看板、仿真和健康检查接口 | `backend/main.py`、`backend/api/ecommerce.py`、`backend/api/auth.py` |
+| Agent 编排层 | 用 LangGraph 组织 Supervisor、专业 Agent、审批门和工具执行器 | `backend/ecommerce/execution_graph.py` |
+| 意图与会话层 | 识别用户目标、补齐参数、多轮追问、恢复原任务上下文 | `backend/ecommerce/intent_planner.py`、`backend/ecommerce/conversation.py` |
+| 专业能力层 | 商品分析、竞品分析、广告优化、客户分层、内容生成和风险校验 | `backend/ecommerce/specialists.py`、`backend/ecommerce/operations_tools.py` |
+| 工具协议层 | 通过 MCP 调用沙箱业务工具，隔离工具会话并统一返回 `ToolResponse` | `backend/ecommerce/mcp_client.py`、`backend/mcp_servers/ecommerce_server.py` |
+| 持久化层 | 保存任务、会话、审批、工具执行、活动、商品状态和 LangGraph 检查点 | `backend/ecommerce/persistence/*`、`backend/db/alembic/versions/*` |
+| 运维观测层 | 健康检查、Prometheus 指标、生产配置、Docker Compose 和发布清单 | `backend/middleware/production.py`、`ops/*`、`docker-compose*.yml` |
+
+## 一次任务如何执行
+
+以“把轻量跑步鞋调价到 269 元并创建推广活动”为例，系统会经历以下步骤：
+
+1. 前端把自然语言目标提交到 `/api/ecommerce/conversations/messages` 或 `/api/ecommerce/execution/tasks`。
+2. `OperationsIntentPlanner` 识别商品、动作、价格、渠道、预算等槽位；如果缺少关键信息，会把待补充状态保存到会话，再向用户追问。
+3. `Supervisor` 把复合任务拆成 DAG：先执行调价，再创建营销活动。
+4. `Catalog Agent` 通过 MCP 读取商品当前价格、状态和 `catalog_version`。
+5. `Pricing Agent` 校验调价幅度、成本底线和毛利率；`Marketing Agent` 生成活动预算、目标 ACOS 和投放渠道。
+6. `Risk Agent` 根据动作类型和价格变化判断审批等级，例如普通用户、editor 或 admin。
+7. `Approval Gate` 使用 LangGraph `interrupt` 暂停任务，前端展示审批卡片和风险理由。
+8. 用户审批后，系统带着 `expected_version` 恢复同一个 LangGraph 线程，避免重复执行旧状态。
+9. `Tool Executor` 通过 MCP 调用 `update_product_price` 和 `create_marketing_campaign`；如果后置步骤失败，会调用 `rollback_product` 恢复调价前快照。
+10. 任务事件、工具回执、审批记录和最终结果写入数据库，前端可以展示完整执行轨迹。
+
+这个链路的关键点是：LLM 负责理解和生成，但业务写入不直接交给 LLM。真正修改状态的工具调用必须经过结构化参数、角色审批、版本校验、MCP Server 二次校验和可观测记录。
+
+## 适合展示的工程亮点
+
+- **执行型 Agent 架构**：不是只输出建议，而是能把任务推进到审批、工具执行、状态变更和回滚。
+- **多 Agent 分工**：Supervisor 负责路由，Catalog/Pricing/Listing/Marketing/Content/Competitor/Risk 等 Agent 各自处理清晰边界。
+- **LangGraph 中断恢复**：审批点使用 `interrupt` 暂停，审批后从检查点恢复执行，适合真实业务里的人工确认流程。
+- **MCP 工具隔离**：工具执行通过独立 MCP Server 完成，业务写工具不暴露给通用对话 Agent。
+- **双层安全校验**：API 层做 RBAC 和租户隔离，MCP Server 再校验任务、审批状态、动作、商品、参数和版本。
+- **证据化分析**：分析报告必须包含数据源、周期和样本量，避免凭空生成运营结论。
+- **确定性降级**：DeepSeek 未配置或调用失败时，系统仍能用规则规划和模板生成保证演示可运行。
+- **生产化意识**：包含健康检查、Prometheus 指标、Grafana 面板、发布清单、Docker Compose 和迁移契约测试。
+
 ## 核心流程
 
 ```text
