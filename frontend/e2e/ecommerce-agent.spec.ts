@@ -76,6 +76,22 @@ test("competitor analysis returns evidence and never creates a campaign", async 
   await expect(page.getByText("等待人工批准")).toHaveCount(0)
 })
 
+test("follow-up resolves actions from the previous report", async ({ page }) => {
+  await page.goto("/agent")
+  await page.locator(".command-input input").fill("给便携榨汁杯做一个小红书竞品分析")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByRole("heading", { name: /竞品分析/ })).toBeVisible({ timeout: 30_000 })
+
+  await page.locator(".command-input input").fill("实现你的建议动作")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByText(/1\. 先产出 3 组差异化内容/)).toBeVisible()
+  await expect(page.getByText(/你希望我重点解决哪类问题/)).toHaveCount(0)
+
+  await page.locator(".command-input input").fill("执行第一个")
+  await page.getByRole("button", { name: "创建并运行" }).click()
+  await expect(page.getByRole("heading", { name: /便携榨汁杯.*小红书.*推广文案/ })).toBeVisible({ timeout: 30_000 })
+})
+
 test("mobile execution workspace has no horizontal overflow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile")
   await page.goto("/agent")

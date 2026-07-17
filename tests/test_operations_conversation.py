@@ -67,3 +67,36 @@ async def test_automation_request_creates_disabled_rule_draft(tmp_path):
     assert rules[0].enabled is False
     assert rules[0].interval_minutes == 1440
     await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_followup_resolves_previous_report_and_asks_for_action_selection(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    service = OperationsConversationService(repository, EcommerceDataLoader().load_cached())
+    first = await service.send("给便携榨汁杯做一个小红书竞品分析", "workspace-1", "alice")
+
+    followup = await service.send("实现你的建议动作", "workspace-1", "alice", first.session_id)
+
+    assert followup.status == "needs_clarification"
+    assert "1." in followup.message
+    assert "先产出 3 组差异化内容" in followup.message
+    assert "经营诊断" not in followup.message
+    await repository.dispose()
+
+
+@pytest.mark.asyncio
+async def test_selecting_previous_content_action_reuses_product_and_channel(tmp_path):
+    repository = EcommerceRepository(f"sqlite+aiosqlite:///{tmp_path / 'agent.db'}")
+    await repository.initialize()
+    service = OperationsConversationService(repository, EcommerceDataLoader().load_cached())
+    first = await service.send("给便携榨汁杯做一个小红书竞品分析", "workspace-1", "alice")
+    await service.send("实现你的建议动作", "workspace-1", "alice", first.session_id)
+
+    selected = await service.send("执行第一个", "workspace-1", "alice", first.session_id)
+
+    assert selected.status == "completed"
+    assert selected.plan.intent == "content_generation"
+    assert selected.plan.product_id == "P003"
+    assert selected.report["channel"] == "小红书"
+    await repository.dispose()
